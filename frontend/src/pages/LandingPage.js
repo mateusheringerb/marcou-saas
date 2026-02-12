@@ -15,7 +15,7 @@ const LandingPage = () => {
     return (
         <div style={{ minHeight: '100vh', background: '#000', color: '#fff', display: 'flex', flexDirection: 'column' }}>
             <header style={{ padding: '80px 20px', textAlign: 'center', background: 'linear-gradient(to bottom, #1a1a1a, #000)' }}>
-                <h1 style={{ fontSize: '3rem', marginBottom: '10px', background: 'linear-gradient(90deg, #fff, #aaa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Marcou.</h1>
+                <h1 style={{ fontSize: '3rem', marginBottom: '10px', background: 'linear-gradient(90deg, #fff, #aaa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Piscou, Marcou.</h1>
                 <p style={{ fontSize: '1.2rem', color: '#888', maxWidth: '600px', margin: '0 auto' }}>A plataforma premium para agendamento.</p>
             </header>
 
