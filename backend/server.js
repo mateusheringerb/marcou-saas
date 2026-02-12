@@ -44,6 +44,12 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "517522819247-g4tut7tgk
 const JWT_SECRET = process.env.JWT_SECRET || "Mvhb@628387*";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
+// ROTA DE HEALTH CHECK
+// O UptimeRobot irá pingar: https://marcou-api.onrender.com/api/ping
+app.get('/api/ping', (req, res) => {
+    res.status(200).json({ status: "online", time: new Date() });
+});
+
 // --- ROTAS PÚBLICAS ---
 
 // Rota para a Landing Page (Lista empresas)
