@@ -16,7 +16,7 @@ const HorarioFuncionamento = require('./models/HorarioFuncionamento');
 // Controladores
 const AgendamentoController = require('./controllers/AgendamentoController');
 const ConfigController = require('./controllers/ConfigController');
-const AdminController = require('./controllers/AdminController'); // Importe o novo controller
+const AdminController = require('./controllers/AdminController');
 const authMiddleware = require('./middlewares/authMiddleware');
 const subscriptionMiddleware = require('./middlewares/subscriptionMiddleware');
 
@@ -36,8 +36,6 @@ app.use(cors({
     }
 }));
 app.use(helmet());
-
-// IMPORTANTE: Limite alto para fotos
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -50,7 +48,7 @@ app.get('/api/ping', (req, res) => res.status(200).json({ status: "online" }));
 
 app.get('/api/empresas', async (req, res) => {
     const empresas = await Empresa.findAll({
-        where: { slug: { [require('sequelize').Op.ne]: 'admin' } }, // Esconde o admin
+        where: { slug: { [require('sequelize').Op.ne]: 'admin' } },
         attributes: ['id', 'nome', 'slug', 'logo_url', 'cor_primaria']
     });
     res.json(empresas);
@@ -103,10 +101,11 @@ app.get('/api/empresa/:slug', async (req, res) => {
     res.json({ id: emp.id, nome: emp.nome, cor_primaria: emp.cor_primaria, logo_url: emp.logo_url });
 });
 
-// --- ROTAS SUPER ADMIN ---
+// --- ROTAS SUPER ADMIN (NOVAS) ---
 app.get('/api/admin/empresas', authMiddleware, AdminController.listarTodasEmpresas);
+app.get('/api/admin/empresas/:id', authMiddleware, AdminController.obterDetalhesEmpresa); // Rota Raio-X
 app.post('/api/admin/empresas', authMiddleware, AdminController.criarEmpresa);
-app.put('/api/admin/empresas/:id/status', authMiddleware, AdminController.alterarStatus);
+app.put('/api/admin/empresas/:id', authMiddleware, AdminController.atualizarEmpresaAdmin); // Edição Geral
 
 // --- ROTAS PRIVADAS ---
 app.get('/api/agendamentos/meus', authMiddleware, AgendamentoController.listarMeusAgendamentos);
@@ -121,7 +120,6 @@ app.get('/api/config/horarios', authMiddleware, ConfigController.listarHorarios)
 app.post('/api/config/horarios', authMiddleware, subscriptionMiddleware, ConfigController.salvarHorarios);
 app.get('/api/disponibilidade', authMiddleware, ConfigController.buscarDisponibilidade);
 
-// Rotas de Perfil e Configuração
 app.put('/api/perfil', authMiddleware, ConfigController.atualizarPerfil);
 app.put('/api/config/empresa', authMiddleware, subscriptionMiddleware, ConfigController.atualizarEmpresa);
 

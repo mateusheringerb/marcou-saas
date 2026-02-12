@@ -1,20 +1,44 @@
 const Empresa = require('../models/Empresa');
 const Usuario = require('../models/Usuario');
+const Servico = require('../models/Servico');
+const Agendamento = require('../models/Agendamento');
 const HorarioFuncionamento = require('../models/HorarioFuncionamento');
 
-// Middleware manual para garantir segurança extra
+// Middleware manual
 const isAdmin = (req) => req.usuario.role === 'admin_geral';
 
 exports.listarTodasEmpresas = async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ erro: "Acesso negado." });
     try {
-        // Traz todas as empresas, menos a do próprio admin
         const empresas = await Empresa.findAll({
             where: { slug: { [require('sequelize').Op.ne]: 'admin' } },
             order: [['createdAt', 'DESC']]
         });
         res.json(empresas);
     } catch (e) { res.status(500).json({ erro: "Erro ao listar." }); }
+};
+
+// NOVO: Busca Raio-X da empresa
+exports.obterDetalhesEmpresa = async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ erro: "Acesso negado." });
+    try {
+        const { id } = req.params;
+        const empresa = await Empresa.findByPk(id, {
+            include: [
+                { model: Usuario, attributes: ['id', 'nome', 'email', 'role', 'atende_clientes'] }, // Equipe
+                { model: Servico }, // Serviços
+                { model: HorarioFuncionamento }, // Horários
+                { model: Agendamento } // Para contar agendamentos
+            ]
+        });
+
+        if (!empresa) return res.status(404).json({ erro: "Empresa não encontrada." });
+
+        res.json(empresa);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ erro: "Erro ao buscar detalhes." });
+    }
 };
 
 exports.criarEmpresa = async (req, res) => {
@@ -39,11 +63,11 @@ exports.criarEmpresa = async (req, res) => {
             email: email_dono,
             senha: senha_dono,
             role: 'dono',
-            atende_clientes: false, // Dono começa só gerenciando
+            atende_clientes: false,
             empresaId: novaEmpresa.id
         });
 
-        // Cria horários padrão para a nova empresa não começar bugada
+        // Horários Padrão
         for (let i = 0; i <= 6; i++) {
             await HorarioFuncionamento.create({
                 dia_semana: i,
@@ -57,14 +81,23 @@ exports.criarEmpresa = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro ao criar empresa." }); }
 };
 
-exports.alterarStatus = async (req, res) => {
+// Atualiza Status e Dados Básicos (Gerenciar)
+exports.atualizarEmpresaAdmin = async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ erro: "Negado." });
     try {
-        const empresa = await Empresa.findByPk(req.params.id);
+        const { id } = req.params;
+        const { nome, slug, cor_primaria, plano, status_assinatura } = req.body;
+
+        const empresa = await Empresa.findByPk(id);
         if (!empresa) return res.status(404).json({ erro: "Não encontrada." });
 
-        empresa.status_assinatura = req.body.status;
+        if (nome) empresa.nome = nome;
+        if (slug) empresa.slug = slug;
+        if (cor_primaria) empresa.cor_primaria = cor_primaria;
+        if (plano) empresa.plano = plano;
+        if (status_assinatura) empresa.status_assinatura = status_assinatura;
+
         await empresa.save();
-        res.json({ ok: true });
-    } catch (e) { res.status(500).json({ erro: "Erro." }); }
+        res.json({ ok: true, empresa });
+    } catch (e) { res.status(500).json({ erro: "Erro ao atualizar." }); }
 };
