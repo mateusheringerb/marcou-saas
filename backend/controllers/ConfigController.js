@@ -19,23 +19,21 @@ exports.listarEquipe = async (req, res) => {
 exports.adicionarMembro = async (req, res) => {
     try {
         const { nome, email, senha, role } = req.body;
-
-        // Validação básica
         if (!nome || !email || !senha) return res.status(400).json({ erro: "Preencha todos os campos." });
 
         const existe = await Usuario.findOne({ where: { email } });
-        if (existe) return res.status(400).json({ erro: "Este email já está em uso." });
+        if (existe) return res.status(400).json({ erro: "Email já cadastrado em outra conta." });
 
         const novo = await Usuario.create({
             nome, email, senha,
-            role: role || 'profissional', // Default para profissional
+            role: role || 'profissional',
             empresaId: req.usuario.empresaId
         });
 
         res.status(201).json({ id: novo.id, nome: novo.nome, email: novo.email, role: novo.role });
     } catch (e) {
         console.error(e);
-        res.status(500).json({ erro: "Erro interno ao adicionar membro." });
+        res.status(500).json({ erro: "Erro interno. Tente outro email." });
     }
 };
 
@@ -49,31 +47,25 @@ exports.removerMembro = async (req, res) => {
 // --- HORÁRIOS ---
 exports.salvarHorarios = async (req, res) => {
     try {
-        const horarios = req.body; // Array de horários
+        const horarios = req.body;
         const empresaId = req.usuario.empresaId;
 
-        // Loop seguro para atualizar ou criar
         for (const h of horarios) {
             const dia = parseInt(h.dia_semana);
-
-            // Busca se já existe config para esse dia
-            const config = await HorarioFuncionamento.findOne({
-                where: { empresaId, dia_semana: dia }
-            });
-
             const dados = {
                 dia_semana: dia,
                 abertura: h.abertura,
                 fechamento: h.fechamento,
+                almoco_inicio: h.almoco_inicio, // NOVO CAMPO
+                almoco_fim: h.almoco_fim,       // NOVO CAMPO
                 ativo: h.ativo,
                 empresaId: empresaId
             };
 
-            if (config) {
-                await config.update(dados);
-            } else {
-                await HorarioFuncionamento.create(dados);
-            }
+            const config = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: dia } });
+
+            if (config) await config.update(dados);
+            else await HorarioFuncionamento.create(dados);
         }
         res.json({ mensagem: "Horários salvos com sucesso!" });
     } catch (e) {
@@ -84,7 +76,7 @@ exports.salvarHorarios = async (req, res) => {
 
 exports.listarHorarios = async (req, res) => {
     try {
-        let horarios = await HorarioFuncionamento.findAll({
+        const horarios = await HorarioFuncionamento.findAll({
             where: { empresaId: req.usuario.empresaId },
             order: [['dia_semana', 'ASC']]
         });
@@ -92,24 +84,24 @@ exports.listarHorarios = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro ao buscar horários." }); }
 };
 
-// --- SLOTS (CÁLCULO) ---
+// --- SLOTS (AGORA COM ALMOÇO) ---
 exports.buscarDisponibilidade = async (req, res) => {
     try {
         const { data, servicoId, profissionalId } = req.query;
         const empresaId = req.usuario.empresaId;
 
-        // 1. Validar se a loja abre neste dia
+        // 1. Validar Dia
         const diaSemana = moment(data).day();
         const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
 
         if (!regra || !regra.ativo) return res.json([]);
 
-        // 2. Pegar duração
+        // 2. Serviço
         const servico = await Servico.findByPk(servicoId);
         if (!servico) return res.status(404).json({ erro: "Serviço inválido" });
         const duracao = servico.duracao_minutos;
 
-        // 3. Pegar agendamentos do dia
+        // 3. Agendamentos
         const agendamentos = await Agendamento.findAll({
             where: {
                 empresaId,
@@ -126,27 +118,42 @@ exports.buscarDisponibilidade = async (req, res) => {
         let cursor = moment(`${data} ${regra.abertura}`);
         const fimDia = moment(`${data} ${regra.fechamento}`);
 
+        // Define intervalo de almoço
+        const almocoInicio = regra.almoco_inicio ? moment(`${data} ${regra.almoco_inicio}`) : null;
+        const almocoFim = regra.almoco_fim ? moment(`${data} ${regra.almoco_fim}`) : null;
+
         while (cursor.clone().add(duracao, 'minutes').isSameOrBefore(fimDia)) {
             const inicioSlot = cursor.clone();
             const fimSlot = cursor.clone().add(duracao, 'minutes');
             let ocupado = false;
 
-            for (const ag of agendamentos) {
-                const agInicio = moment(ag.data_hora_inicio);
-                const agFim = moment(ag.data_hora_fim);
-                // Lógica de colisão
-                if (inicioSlot.isBefore(agFim) && fimSlot.isAfter(agInicio)) {
+            // Bloqueio de Almoço
+            if (almocoInicio && almocoFim) {
+                // Se o serviço começa DENTRO do almoço ou termina DENTRO do almoço
+                if (
+                    (inicioSlot.isSameOrAfter(almocoInicio) && inicioSlot.isBefore(almocoFim)) ||
+                    (fimSlot.isAfter(almocoInicio) && fimSlot.isSameOrBefore(almocoFim))
+                ) {
                     ocupado = true;
-                    break;
                 }
             }
 
-            // Bloqueia passado
+            // Bloqueio de Agendamentos
+            if (!ocupado) {
+                for (const ag of agendamentos) {
+                    const agInicio = moment(ag.data_hora_inicio);
+                    const agFim = moment(ag.data_hora_fim);
+                    if (inicioSlot.isBefore(agFim) && fimSlot.isAfter(agInicio)) {
+                        ocupado = true;
+                        break;
+                    }
+                }
+            }
+
+            // Bloqueio de Passado
             if (inicioSlot.isBefore(moment())) ocupado = true;
 
             if (!ocupado) slots.push(inicioSlot.format('HH:mm'));
-
-            // Intervalo de grade (30 min ou 15 min dependendo da preferência)
             cursor.add(30, 'minutes');
         }
 
