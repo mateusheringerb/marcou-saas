@@ -9,10 +9,9 @@ const moment = require('moment');
 // --- EQUIPE ---
 exports.listarEquipe = async (req, res) => {
     try {
-        // Retorna todos para o dono filtrar, mas frontend filtra depois
         const equipe = await Usuario.findAll({
             where: { empresaId: req.usuario.empresaId, role: ['dono', 'profissional'] },
-            attributes: ['id', 'nome', 'email', 'role', 'foto_url']
+            attributes: ['id', 'nome', 'email', 'role', 'foto_url', 'atende_clientes']
         });
         res.json(equipe);
     } catch (e) { res.status(500).json({ erro: "Erro ao listar equipe." }); }
@@ -20,7 +19,7 @@ exports.listarEquipe = async (req, res) => {
 
 exports.adicionarMembro = async (req, res) => {
     try {
-        const { nome, email, senha, role, foto_url } = req.body;
+        const { nome, email, senha, role, foto_url, atende_clientes } = req.body;
         if (!nome || !email || !senha) return res.status(400).json({ erro: "Preencha campos." });
 
         const existe = await Usuario.findOne({ where: { email } });
@@ -29,6 +28,7 @@ exports.adicionarMembro = async (req, res) => {
         const novo = await Usuario.create({
             nome, email, senha, foto_url,
             role: role || 'profissional',
+            atende_clientes: atende_clientes !== undefined ? atende_clientes : true,
             empresaId: req.usuario.empresaId
         });
 
@@ -47,7 +47,7 @@ exports.removerMembro = async (req, res) => {
 // --- PERFIL ---
 exports.atualizarPerfil = async (req, res) => {
     try {
-        const { nome, email, foto_url } = req.body;
+        const { nome, email, foto_url, atende_clientes } = req.body;
         const usuario = await Usuario.findByPk(req.usuario.id);
         if (!usuario) return res.status(404).json({ erro: "Usuario não encontrado." });
 
@@ -55,9 +55,15 @@ exports.atualizarPerfil = async (req, res) => {
         if (email) usuario.email = email;
         if (foto_url) usuario.foto_url = foto_url;
 
+        // Se o usuário mandou true ou false, atualiza. Se não mandou, mantém.
+        if (atende_clientes !== undefined) usuario.atende_clientes = atende_clientes;
+
         await usuario.save();
         res.json({ ok: true });
-    } catch (e) { res.status(500).json({ erro: "Erro ao atualizar." }); }
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ erro: "Erro ao atualizar perfil." });
+    }
 };
 
 exports.atualizarEmpresa = async (req, res) => {
@@ -65,12 +71,17 @@ exports.atualizarEmpresa = async (req, res) => {
     try {
         const { nome, logo_url, cor_primaria } = req.body;
         const empresa = await Empresa.findByPk(req.usuario.empresaId);
+
         if (nome) empresa.nome = nome;
         if (logo_url) empresa.logo_url = logo_url;
         if (cor_primaria) empresa.cor_primaria = cor_primaria;
+
         await empresa.save();
         res.json({ ok: true });
-    } catch (e) { res.status(500).json({ erro: "Erro." }); }
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ erro: "Erro ao salvar empresa. Imagem muito grande?" });
+    }
 };
 
 // --- HORÁRIOS ---
@@ -85,8 +96,8 @@ exports.salvarHorarios = async (req, res) => {
                 dia_semana: dia,
                 abertura: h.abertura || "09:00",
                 fechamento: h.fechamento || "18:00",
-                almoco_inicio: h.almoco_inicio,
-                almoco_fim: h.almoco_fim,
+                almoco_inicio: h.almoco_inicio || null,
+                almoco_fim: h.almoco_fim || null,
                 ativo: h.ativo,
                 empresaId: empresaId
             };
@@ -108,23 +119,21 @@ exports.listarHorarios = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro." }); }
 };
 
-// --- SLOTS (FUSO HORÁRIO BRASIL) ---
+// --- SLOTS (LÓGICA CORRIGIDA PARA O BRASIL) ---
 exports.buscarDisponibilidade = async (req, res) => {
     try {
         const { data, servicoId, profissionalId } = req.query;
         const empresaId = req.usuario.empresaId;
 
-        // 1. Serviço e Duração
         const servico = await Servico.findByPk(servicoId);
         if (!servico) return res.status(404).json({ erro: "Serviço inválido" });
         const duracao = parseInt(servico.duracao_minutos);
 
-        // 2. Data
         const dataRef = moment(data).format('YYYY-MM-DD');
         const diaSemana = moment(dataRef).day();
 
-        // 3. Regra de Horário
         const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
+        // Se não tiver regra ou ativo = false, retorna vazio
         if (!regra || !regra.ativo) return res.json([]);
 
         const toMin = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -133,7 +142,6 @@ exports.buscarDisponibilidade = async (req, res) => {
         const almocoIni = toMin(regra.almoco_inicio);
         const almocoFim = toMin(regra.almoco_fim);
 
-        // 4. Agendamentos
         const agendamentos = await Agendamento.findAll({
             where: {
                 empresaId, profissionalId, status: { [Op.not]: 'cancelado' },
@@ -146,12 +154,11 @@ exports.buscarDisponibilidade = async (req, res) => {
             return { inicio: i.hours() * 60 + i.minutes(), fim: f.hours() * 60 + f.minutes() };
         });
 
-        // 5. Cálculo dos Slots
         let slots = [];
         let cursor = abertura;
 
-        // FUSO HORÁRIO: Forçar comparação com horário do Brasil (UTC-3)
-        // Se rodar no Render (UTC), "agora" pode ser futuro. Ajustamos aqui.
+        // FUSO HORÁRIO BRASIL (-3)
+        // Isso garante que se for 18h no servidor (UTC) mas 15h no Brasil, ainda mostre horários
         const agoraBrasil = moment().utcOffset(-3);
         const ehHoje = agoraBrasil.format('YYYY-MM-DD') === dataRef;
         const minutosAgora = agoraBrasil.hours() * 60 + agoraBrasil.minutes();
@@ -160,11 +167,11 @@ exports.buscarDisponibilidade = async (req, res) => {
             const ini = cursor; const fim = cursor + duracao;
             let livre = true;
 
-            // Bloqueio de Passado
-            if (ehHoje && ini <= minutosAgora) livre = false;
+            // Bloqueio de Passado (Com buffer de 30min para não agendar muito em cima)
+            if (ehHoje && ini <= (minutosAgora + 30)) livre = false;
 
-            // Bloqueio de Almoço
-            if (livre && almocoIni && almocoFim) {
+            // Bloqueio de Almoço (Só se tiver horário definido)
+            if (livre && almocoIni !== null && almocoFim !== null) {
                 if ((ini >= almocoIni && ini < almocoFim) || (fim > almocoIni && fim <= almocoFim) || (ini <= almocoIni && fim >= almocoFim)) livre = false;
             }
 
@@ -180,8 +187,11 @@ exports.buscarDisponibilidade = async (req, res) => {
                 const m = (ini % 60).toString().padStart(2, '0');
                 slots.push(`${h}:${m}`);
             }
-            cursor += 30; // Intervalo de 30min
+            cursor += 30;
         }
         res.json(slots);
-    } catch (e) { res.status(500).json({ erro: "Erro." }); }
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ erro: "Erro ao calcular slots." });
+    }
 };

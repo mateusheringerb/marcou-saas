@@ -2,15 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import moment from 'moment';
 import 'moment/locale/pt-br';
-// ÍCONES LUCIDE
 import {
     Calendar, Users, Settings, Scissors, LogOut, Check, Clock,
-    User, Save, Coffee, CreditCard, Camera, Upload, Smile, Briefcase, Trash2, Edit2
+    User, Save, Coffee, CreditCard, Camera, Upload, Smile, Briefcase, Trash2, Edit2, AlertCircle
 } from 'lucide-react';
 
 moment.locale('pt-br');
 
-// MODAL DE CONFIRMAÇÃO
 const ConfirmationModal = ({ onClose }) => (
     <div className="modal-overlay">
         <div className="modal-content">
@@ -19,18 +17,17 @@ const ConfirmationModal = ({ onClose }) => (
             </div>
             <h2 style={{ fontSize: '1.2rem', marginBottom: 8, color: '#064e3b' }}>Agendado com Sucesso!</h2>
             <p style={{ color: '#6b7280', fontSize: '0.95rem', marginBottom: 20 }}>Seu horário está garantido.</p>
-            <button onClick={onClose} className="btn btn-primary" style={{ width: '100%', background: '#10b981' }}>Combinado!</button>
+            <button onClick={onClose} className="btn btn-primary" style={{ width: '100%', background: '#10b981' }}>Perfeito!</button>
         </div>
     </div>
 );
 
 const Dashboard = ({ usuario, empresa }) => {
-    // --- ESTADOS ---
     const [aba, setAba] = useState('agenda');
     const [loadingData, setLoadingData] = useState(true);
     const [showSuccess, setShowSuccess] = useState(false);
 
-    // Inicialização segura com Arrays vazios para evitar Tela Branca
+    // Dados
     const [agenda, setAgenda] = useState([]);
     const [servicos, setServicos] = useState([]);
     const [equipe, setEquipe] = useState([]);
@@ -51,45 +48,33 @@ const Dashboard = ({ usuario, empresa }) => {
 
     // Forms
     const [novoAgendamento, setNovoAgendamento] = useState({ nome: '', servicoId: '', profissionalId: '', data: '', hora: '' });
-    const [novoMembro, setNovoMembro] = useState({ nome: '', email: '', senha: '', role: 'profissional' });
+    const [novoMembro, setNovoMembro] = useState({ nome: '', email: '', senha: '', role: 'profissional', atende_clientes: true });
     const [svcForm, setSvcForm] = useState({ nome: '', descricao: '', preco: '', duracao_minutos: '' });
     const [editId, setEditId] = useState(null);
 
-    // --- CARREGAMENTO BLINDADO ---
+    // --- CARREGAMENTO INICIAL ---
     const carregarTudo = useCallback(async () => {
-        // Não ativa loading total se já tiver dados (para evitar piscar a tela)
         try {
-            const endpoints = [
+            const [resS, resA, resE] = await Promise.allSettled([
                 api.get('/servicos'),
                 api.get(usuario.role === 'dono' ? '/agendamentos/empresa' : '/agendamentos/meus'),
                 api.get('/equipe')
-            ];
+            ]);
 
-            // Promise.allSettled evita que um erro em uma rota quebre as outras
-            const results = await Promise.allSettled(endpoints);
+            setServicos(resS.status === 'fulfilled' ? resS.value.data : []);
+            setAgenda(resA.status === 'fulfilled' ? resA.value.data : []);
+            setEquipe(resE.status === 'fulfilled' ? resE.value.data : []);
 
-            // Tratamento Seguro dos Dados
-            const resServicos = results[0].status === 'fulfilled' ? results[0].value.data : [];
-            const resAgenda = results[1].status === 'fulfilled' ? results[1].value.data : [];
-            const resEquipe = results[2].status === 'fulfilled' ? results[2].value.data : [];
-
-            setServicos(Array.isArray(resServicos) ? resServicos : []);
-            setAgenda(Array.isArray(resAgenda) ? resAgenda : []);
-            setEquipe(Array.isArray(resEquipe) ? resEquipe : []);
-
-            // Horários (Apenas Dono)
             if (usuario.role === 'dono') {
-                try {
-                    const resH = await api.get('/config/horarios');
-                    if (Array.isArray(resH.data) && resH.data.length > 0) {
-                        setHorarios(prev => prev.map(p => {
-                            const b = resH.data.find(x => x.dia_semana === p.dia_semana);
-                            return b ? { ...p, ...b } : p;
-                        }));
-                    }
-                } catch (err) { console.warn("Horários não carregados", err); }
+                const resH = await api.get('/config/horarios').catch(() => ({ data: [] }));
+                if (resH.data && resH.data.length > 0) {
+                    setHorarios(prev => prev.map(p => {
+                        const b = resH.data.find(x => x.dia_semana === p.dia_semana);
+                        return b ? { ...p, ...b } : p;
+                    }));
+                }
             }
-        } catch (e) { console.error("Erro crítico no load:", e); }
+        } catch (e) { console.error("Erro load", e); }
         setLoadingData(false);
     }, [usuario.role]);
 
@@ -99,20 +84,20 @@ const Dashboard = ({ usuario, empresa }) => {
     useEffect(() => {
         const { data, servicoId, profissionalId } = novoAgendamento;
         if (data && servicoId && profissionalId) {
-            // Limpa slots anteriores enquanto carrega
             setSlots([]);
             api.get(`/disponibilidade?data=${data}&servicoId=${servicoId}&profissionalId=${profissionalId}`)
-                .then(res => setSlots(Array.isArray(res.data) ? res.data : []))
+                .then(res => setSlots(res.data))
                 .catch(() => setSlots([]));
-        } else {
-            setSlots([]);
-        }
+        } else setSlots([]);
     }, [novoAgendamento.data, novoAgendamento.servicoId, novoAgendamento.profissionalId]);
 
     // --- UPLOAD (Base64) ---
     const handleUpload = (e, tipo) => {
         const file = e.target.files[0];
         if (!file) return;
+        // Validação de tamanho no front (5MB aviso)
+        if (file.size > 5 * 1024 * 1024) { alert("Imagem muito grande. Tente uma menor que 5MB."); return; }
+
         const reader = new FileReader();
         reader.onloadend = () => {
             if (tipo === 'perfil') setPerfil({ ...perfil, foto_url: reader.result });
@@ -136,7 +121,7 @@ const Dashboard = ({ usuario, empresa }) => {
             setNovoAgendamento({ nome: '', servicoId: '', profissionalId: '', data: '', hora: '' });
             setSlots([]);
             carregarTudo();
-        } catch (e) { alert(e.response?.data?.erro || "Erro ao agendar."); }
+        } catch (e) { alert("Erro ao agendar. Tente outro horário."); }
     };
 
     const salvarPerfil = async (e) => {
@@ -144,10 +129,9 @@ const Dashboard = ({ usuario, empresa }) => {
         try {
             await api.put('/perfil', perfil);
             if (usuario.role === 'dono') await api.put('/config/empresa', empresaConfig);
-            alert("Perfil atualizado!");
-            // Não recarregar a página inteira, apenas atualizar contexto se possível, mas reload é seguro
+            alert("Perfil atualizado com sucesso!");
             window.location.reload();
-        } catch (e) { alert("Erro ao salvar."); }
+        } catch (e) { alert("Erro ao salvar. Verifique se a imagem não é pesada demais."); }
     };
 
     const handleService = async (e) => {
@@ -155,10 +139,7 @@ const Dashboard = ({ usuario, empresa }) => {
         try {
             const pl = { ...svcForm, preco: parseFloat(svcForm.preco), duracao_minutos: parseInt(svcForm.duracao_minutos) };
             if (editId) await api.put(`/servicos/${editId}`, pl); else await api.post('/servicos', pl);
-
-            setSvcForm({ nome: '', descricao: '', preco: '', duracao_minutos: '' });
-            setEditId(null);
-            await carregarTudo(); // Espera recarregar
+            setSvcForm({ nome: '', descricao: '', preco: '', duracao_minutos: '' }); setEditId(null); await carregarTudo();
             alert("Serviço Salvo!");
         } catch (e) { alert("Erro ao salvar serviço."); }
     };
@@ -167,31 +148,25 @@ const Dashboard = ({ usuario, empresa }) => {
 
     const addMembro = async (e) => {
         e.preventDefault();
-        try {
-            await api.post('/equipe', novoMembro);
-            setNovoMembro({ nome: '', email: '', senha: '', role: 'profissional' });
-            await carregarTudo(); // Espera recarregar antes de alertar
-            alert("Membro Adicionado!");
-        } catch (e) { alert(e.response?.data?.erro || "Erro ao adicionar membro."); }
+        try { await api.post('/equipe', novoMembro); setNovoMembro({ nome: '', email: '', senha: '', role: 'profissional', atende_clientes: true }); await carregarTudo(); alert("Adicionado!"); } catch (e) { alert("Erro ao adicionar."); }
     };
-
     const removeMembro = async (id) => { if (window.confirm('Remover?')) { await api.delete(`/equipe/${id}`); carregarTudo(); } };
 
     const salvarHorarios = async () => {
         try {
             const pl = horarios.map(h => ({ ...h, dia_semana: parseInt(h.dia_semana) }));
             await api.post('/config/horarios', pl);
-            alert("Horários salvos!");
+            alert("Horários atualizados!");
         } catch (e) { alert("Erro ao salvar horários."); }
     };
 
     const updateHorario = (i, f, v) => { const n = [...horarios]; n[i][f] = v; setHorarios(n); };
 
+    // --- RENDER ---
     return (
         <div className="layout">
             {showSuccess && <ConfirmationModal onClose={() => setShowSuccess(false)} />}
 
-            {/* SIDEBAR */}
             <aside className="sidebar">
                 <div className="desktop-only" style={{ marginBottom: 40, textAlign: 'center' }}>
                     {empresaConfig.logo_url ? (
@@ -203,45 +178,26 @@ const Dashboard = ({ usuario, empresa }) => {
                 </div>
 
                 <nav style={{ flex: 1, display: 'flex', flexDirection: window.innerWidth <= 768 ? 'row' : 'column', gap: 6 }}>
-                    <button className={`nav-btn ${aba === 'agenda' ? 'active' : ''}`} onClick={() => setAba('agenda')}>
-                        <Calendar size={20} /> <span>Agenda</span>
-                    </button>
-                    <button className={`nav-btn ${aba === 'perfil' ? 'active' : ''}`} onClick={() => setAba('perfil')}>
-                        <User size={20} /> <span>Perfil</span>
-                    </button>
+                    <button className={`nav-btn ${aba === 'agenda' ? 'active' : ''}`} onClick={() => setAba('agenda')}><Calendar size={20} /> <span>Agenda</span></button>
+                    <button className={`nav-btn ${aba === 'perfil' ? 'active' : ''}`} onClick={() => setAba('perfil')}><User size={20} /> <span>Perfil</span></button>
 
-                    {/* MENUS DO DONO */}
                     {usuario.role === 'dono' && (
                         <>
-                            <button className={`nav-btn ${aba === 'servicos' ? 'active' : ''}`} onClick={() => setAba('servicos')}>
-                                <Scissors size={20} /> <span>Serviços</span>
-                            </button>
-                            <button className={`nav-btn ${aba === 'equipe' ? 'active' : ''}`} onClick={() => setAba('equipe')}>
-                                <Users size={20} /> <span>Equipe</span>
-                            </button>
-                            <button className={`nav-btn ${aba === 'config' ? 'active' : ''}`} onClick={() => setAba('config')}>
-                                <Settings size={20} /> <span>Config</span>
-                            </button>
-                            <button className={`nav-btn ${aba === 'financeiro' ? 'active' : ''}`} onClick={() => setAba('financeiro')}>
-                                <CreditCard size={20} /> <span>Plano</span>
-                            </button>
+                            <button className={`nav-btn ${aba === 'servicos' ? 'active' : ''}`} onClick={() => setAba('servicos')}><Scissors size={20} /> <span>Serviços</span></button>
+                            <button className={`nav-btn ${aba === 'equipe' ? 'active' : ''}`} onClick={() => setAba('equipe')}><Users size={20} /> <span>Equipe</span></button>
+                            <button className={`nav-btn ${aba === 'config' ? 'active' : ''}`} onClick={() => setAba('config')}><Settings size={20} /> <span>Config</span></button>
+                            <button className={`nav-btn ${aba === 'financeiro' ? 'active' : ''}`} onClick={() => setAba('financeiro')}><CreditCard size={20} /> <span>Plano</span></button>
                         </>
                     )}
                 </nav>
-
-                <button className="nav-btn desktop-only" style={{ marginTop: 'auto', color: '#ef4444' }} onClick={() => { localStorage.removeItem('marcou_token'); window.location.reload(); }}>
-                    <LogOut size={20} /> <span>Sair</span>
-                </button>
+                <button className="nav-btn desktop-only" style={{ marginTop: 'auto', color: '#ef4444' }} onClick={() => { localStorage.removeItem('marcou_token'); window.location.reload(); }}><LogOut size={20} /> <span>Sair</span></button>
             </aside>
 
-            {/* MAIN CONTENT */}
             <main className="main-content">
                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }} className="page-header">
                     <div>
-                        <h1>{aba === 'agenda' ? 'Sua Agenda' : aba.charAt(0).toUpperCase() + aba.slice(1)}</h1>
-                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>
-                            {aba === 'agenda' ? 'Gerencie seus compromissos.' : 'Painel de controle.'}
-                        </p>
+                        <h1>{aba === 'agenda' ? 'Início' : aba.charAt(0).toUpperCase() + aba.slice(1)}</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Bem-vindo, {usuario.nome}</p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {usuario.foto_url ? (
@@ -255,6 +211,7 @@ const Dashboard = ({ usuario, empresa }) => {
                 {loadingData ? (
                     <div style={{ padding: 50, textAlign: 'center' }}>
                         <div className="spinner"></div>
+                        <p style={{ color: '#9ca3af', marginTop: 10 }}>Carregando dados...</p>
                     </div>
                 ) : (
                     <>
@@ -265,33 +222,34 @@ const Dashboard = ({ usuario, empresa }) => {
                                     <h3>Novo Agendamento</h3>
                                     <form onSubmit={handleAgendar} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                                         {usuario.role === 'dono' && (
-                                            <div><label className="label">Cliente Avulso</label><input className="input" placeholder="Nome do cliente" value={novoAgendamento.nome} onChange={e => setNovoAgendamento({ ...novoAgendamento, nome: e.target.value })} /></div>
+                                            <div><label className="label">Cliente (Balcão)</label><input className="input" placeholder="Nome do cliente" value={novoAgendamento.nome} onChange={e => setNovoAgendamento({ ...novoAgendamento, nome: e.target.value })} /></div>
                                         )}
                                         <div className="grid-booking">
                                             <div>
                                                 <label className="label">Serviço</label>
                                                 <select className="input" value={novoAgendamento.servicoId} onChange={e => setNovoAgendamento({ ...novoAgendamento, servicoId: e.target.value })} required>
                                                     <option value="">Selecione...</option>
-                                                    {servicos.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.duracao_minutos}min)</option>)}
+                                                    {servicos.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
                                                 </select>
                                             </div>
                                             <div>
                                                 <label className="label">Profissional</label>
                                                 <select className="input" value={novoAgendamento.profissionalId} onChange={e => setNovoAgendamento({ ...novoAgendamento, profissionalId: e.target.value })} required>
                                                     <option value="">Selecione...</option>
-                                                    {/* FILTRO: Só mostra profissionais reais, esconde o Dono/Admin da seleção */}
-                                                    {equipe
-                                                        .filter(p => p.role === 'profissional')
-                                                        .map(p => <option key={p.id} value={p.id}>{p.nome}</option>)
-                                                    }
+                                                    {/* FILTRO DE ATENDIMENTO */}
+                                                    {equipe.filter(p => p.atende_clientes).map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                                                 </select>
                                             </div>
                                         </div>
                                         <div><label className="label">Data</label><input type="date" className="input" value={novoAgendamento.data} min={moment().format('YYYY-MM-DD')} onChange={e => setNovoAgendamento({ ...novoAgendamento, data: e.target.value })} required /></div>
 
                                         {slots.length > 0 ? (
-                                            <div><label className="label">Horários Disponíveis</label><div className="slots-grid">{slots.map(slot => (<div key={slot} className={`slot ${novoAgendamento.hora === slot ? 'selected' : ''}`} onClick={() => setNovoAgendamento({ ...novoAgendamento, hora: slot })}>{slot}</div>))}</div></div>
+                                            <div><label className="label">Horários</label><div className="slots-grid">{slots.map(slot => (<div key={slot} className={`slot ${novoAgendamento.hora === slot ? 'selected' : ''}`} onClick={() => setNovoAgendamento({ ...novoAgendamento, hora: slot })}>{slot}</div>))}</div></div>
                                         ) : novoAgendamento.data && <div style={{ textAlign: 'center', color: '#999', padding: 10, background: '#f9fafb', borderRadius: 8 }}>Nenhum horário livre nesta data.</div>}
+
+                                        <div style={{ fontSize: '0.85rem', color: '#6b7280', background: '#f3f4f6', padding: 10, borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                                            <AlertCircle size={16} /> <span>Pagamento realizado diretamente no estabelecimento.</span>
+                                        </div>
 
                                         <button type="submit" className="btn btn-cta" disabled={!novoAgendamento.hora}>Confirmar Agendamento</button>
                                     </form>
@@ -337,6 +295,15 @@ const Dashboard = ({ usuario, empresa }) => {
                                     <div><label className="label">Nome</label><input className="input" value={perfil.nome} onChange={e => setPerfil({ ...perfil, nome: e.target.value })} /></div>
                                     <div><label className="label">Email</label><input className="input" value={perfil.email} disabled style={{ background: '#f3f4f6' }} /></div>
 
+                                    {/* Toggle de Atendimento */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', padding: 15, borderRadius: 12 }}>
+                                        <input type="checkbox" checked={perfil.atende_clientes} onChange={e => setPerfil({ ...perfil, atende_clientes: e.target.checked })} style={{ width: 20, height: 20 }} />
+                                        <div>
+                                            <strong style={{ display: 'block', fontSize: '0.95rem' }}>Disponível para Agendamentos</strong>
+                                            <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>Marque se você realiza atendimentos.</span>
+                                        </div>
+                                    </div>
+
                                     {usuario.role === 'dono' && (
                                         <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #eee' }}>
                                             <h3 style={{ marginBottom: 15 }}>Dados da Empresa</h3>
@@ -364,7 +331,7 @@ const Dashboard = ({ usuario, empresa }) => {
                                         <div><label className="label">Nome</label><input className="input" value={svcForm.nome} onChange={e => setSvcForm({ ...svcForm, nome: e.target.value })} required placeholder="Ex: Corte Cabelo" /></div>
                                         <div><label className="label">Descrição</label><input className="input" value={svcForm.descricao} onChange={e => setSvcForm({ ...svcForm, descricao: e.target.value })} /></div>
                                         <div style={{ display: 'flex', gap: 10 }}>
-                                            <div style={{ flex: 1 }}><label className="label">Preço (R$)</label><input className="input" type="number" step="0.01" value={svcForm.preco} onChange={e => setSvcForm({ ...svcForm, preco: e.target.value })} required /></div>
+                                            <div style={{ flex: 1 }}><label className="label">Preço (R$)</label><input className="input" type="number" value={svcForm.preco} onChange={e => setSvcForm({ ...svcForm, preco: e.target.value })} required /></div>
                                             <div style={{ flex: 1 }}><label className="label">Minutos</label><input className="input" type="number" value={svcForm.duracao_minutos} onChange={e => setSvcForm({ ...svcForm, duracao_minutos: e.target.value })} required /></div>
                                         </div>
                                         <button className="btn btn-primary">Salvar Serviço</button>
@@ -372,7 +339,6 @@ const Dashboard = ({ usuario, empresa }) => {
                                 </div>
                                 <div className="card">
                                     <h3>Cadastrados</h3>
-                                    {servicos.length === 0 && <p style={{ color: '#999' }}>Nenhum serviço.</p>}
                                     {servicos.map(s => (
                                         <div key={s.id} className="list-item">
                                             <div><div style={{ fontWeight: 600 }}>{s.nome}</div><div style={{ fontSize: '0.85rem', color: '#666' }}>R$ {s.preco} • {s.duracao_minutos}m</div></div>
@@ -404,11 +370,10 @@ const Dashboard = ({ usuario, empresa }) => {
                                 </div>
                                 <div className="card">
                                     <h3>Equipe</h3>
-                                    {equipe.length === 0 && <p style={{ color: '#999' }}>Nenhum membro.</p>}
                                     {equipe.map(m => (
                                         <div key={m.id} className="list-item">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                {m.foto_url ? <img src={m.foto_url} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 32, height: 32, background: '#f3f4f6', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{m.nome.charAt(0)}</div>}
+                                                {m.foto_url ? <img src={m.foto_url} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} alt="Foto" /> : <div style={{ width: 32, height: 32, background: '#f3f4f6', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{m.nome.charAt(0)}</div>}
                                                 <div><div style={{ fontWeight: 600 }}>{m.nome}</div><div style={{ fontSize: '0.8rem', color: '#666' }}>{m.role}</div></div>
                                             </div>
                                             {m.id !== usuario.id && <button onClick={() => removeMembro(m.id)} className="btn btn-icon" style={{ color: 'red' }}><Trash2 size={18} /></button>}
