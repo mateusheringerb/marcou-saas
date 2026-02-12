@@ -5,7 +5,7 @@ import App from './App';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
 // COLE SEU ID DO GOOGLE CLOUD AQUI
-const GOOGLE_CLIENT_ID = "COLE_SEU_CLIENT_ID_DO_GOOGLE_AQUI";
+const GOOGLE_CLIENT_ID = "517522819247-g4tut7tgkfshr4ef3ffc3gg5tj2l73rn.apps.googleusercontent.com";
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
