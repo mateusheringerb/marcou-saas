@@ -10,18 +10,23 @@ exports.criarAgendamento = async (req, res) => {
         const empresaId = req.usuario.empresaId;
 
         if (!servicoId || !dataHoraInicio) return res.status(400).json({ erro: "Dados incompletos." });
-        if (req.usuario.role === 'dono' && !profissionalId) return res.status(400).json({ erro: "Profissional obrigatório." });
+
+        // Se for dono agendando, exige profissionalId.
+        if (req.usuario.role === 'dono' && !profissionalId) {
+            return res.status(400).json({ erro: "Erro: Profissional não identificado." });
+        }
 
         let clienteId = req.usuario.id;
         let nomeAvulso = null;
 
+        // Lógica de agendamento manual
         if (req.usuario.role === 'dono' && nomeClienteAvulso) {
             clienteId = null;
             nomeAvulso = nomeClienteAvulso;
         }
 
         const servico = await Servico.findByPk(servicoId);
-        if (!servico) return res.status(404).json({ erro: "Serviço não existe." });
+        if (!servico) return res.status(404).json({ erro: "Serviço não encontrado." });
 
         const inicio = moment(dataHoraInicio);
         const fim = moment(inicio).add(servico.duracao_minutos, 'minutes');
@@ -49,7 +54,7 @@ exports.criarAgendamento = async (req, res) => {
         });
 
         res.status(201).json(novo);
-    } catch (error) { res.status(500).json({ erro: "Erro interno." }); }
+    } catch (error) { res.status(500).json({ erro: "Erro interno ao agendar." }); }
 };
 
 exports.listarMeusAgendamentos = async (req, res) => {

@@ -19,16 +19,16 @@ const subscriptionMiddleware = require('./middlewares/subscriptionMiddleware');
 
 const app = express();
 
-// Configuração CORS dinâmica para Vercel
+// Configuração CORS (Permite Vercel e Localhost)
 const allowedOrigins = [
     'http://localhost:3000',
     'https://marcou.agapeconnect.com.br',
-    'https://marcou-saas.vercel.app'
+    'https://marcou-frontend.vercel.app'
 ];
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) return callback(null, true); // Permissivo para evitar erros
+        if (allowedOrigins.indexOf(origin) === -1) return callback(null, true);
         return callback(null, true);
     }
 }));
@@ -69,7 +69,7 @@ app.post('/api/login/google', async (req, res) => {
 
         const appToken = jwt.sign({ id: usuario.id, role: usuario.role, empresaId: usuario.empresaId }, JWT_SECRET, { expiresIn: '24h' });
         res.json({ token: appToken, usuario: { id: usuario.id, nome: usuario.nome, role: usuario.role } });
-    } catch (e) { res.status(401).json({ erro: "Google Auth falhou." }); }
+    } catch (e) { res.status(401).json({ erro: "Autenticação Google falhou." }); }
 });
 
 app.post('/api/cadastro', async (req, res) => {
@@ -98,6 +98,7 @@ app.get('/api/agendamentos/meus', authMiddleware, AgendamentoController.listarMe
 app.get('/api/agendamentos/empresa', authMiddleware, subscriptionMiddleware, AgendamentoController.listarAgendamentosEmpresa);
 app.post('/api/agendar', authMiddleware, subscriptionMiddleware, AgendamentoController.criarAgendamento);
 
+// CRUD de Serviços (Aqui no server.js para simplificar)
 app.get('/api/servicos', authMiddleware, async (req, res) => {
     const s = await Servico.findAll({ where: { empresaId: req.usuario.empresaId } });
     res.json(s);

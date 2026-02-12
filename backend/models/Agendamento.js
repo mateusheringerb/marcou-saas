@@ -9,7 +9,7 @@ const Agendamento = database.define('agendamento', {
     data_hora_inicio: { type: Sequelize.DATE, allowNull: false },
     data_hora_fim: { type: Sequelize.DATE, allowNull: false },
     status: { type: Sequelize.ENUM('pendente', 'confirmado', 'concluido', 'cancelado'), defaultValue: 'confirmado' },
-    nome_cliente_avulso: { type: Sequelize.STRING, allowNull: true },
+    nome_cliente_avulso: { type: Sequelize.STRING, allowNull: true }, // Para agendamento manual
     observacoes: { type: Sequelize.STRING, allowNull: true }
 });
 

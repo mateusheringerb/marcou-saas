@@ -13,13 +13,13 @@ module.exports = async (req, res, next) => {
         }
 
         const hoje = moment();
-        const validade = moment(empresa.data_expiracao).add(3, 'days'); // Tolerância
+        const validade = moment(empresa.data_expiracao).add(3, 'days');
 
         if (hoje.isAfter(validade)) {
             return res.status(402).json({ erro: "Assinatura expirada." });
         }
         next();
     } catch (error) {
-        return res.status(500).json({ erro: "Erro de verificação." });
+        return res.status(500).json({ erro: "Erro de verificação de assinatura." });
     }
 };

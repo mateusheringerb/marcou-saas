@@ -6,7 +6,7 @@ const Usuario = database.define('usuario', {
     id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
     nome: { type: Sequelize.STRING, allowNull: false },
     email: { type: Sequelize.STRING, allowNull: false },
-    senha: { type: Sequelize.STRING, allowNull: true }, // Pode ser null se for Google Login
+    senha: { type: Sequelize.STRING, allowNull: true }, // Pode ser null (Google Login)
     role: { type: Sequelize.ENUM('admin_geral', 'dono', 'profissional', 'cliente'), defaultValue: 'cliente' }
 });
 

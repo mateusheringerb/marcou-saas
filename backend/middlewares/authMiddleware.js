@@ -1,5 +1,4 @@
 const jwt = require('jsonwebtoken');
-// Em produção, a chave vem do ambiente. Em dev, usa a string fixa.
 const SECRET = process.env.JWT_SECRET || "AGAPE_CONNECT_KEY_2026_MATEUS";
 
 module.exports = (req, res, next) => {

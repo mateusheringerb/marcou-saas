@@ -4,7 +4,7 @@ const Sequelize = require('sequelize');
 let sequelize;
 
 if (process.env.DATABASE_URL) {
-    // Produção (Render/Neon/Supabase)
+    // Produção (Render/Neon/Supabase) - PostgreSQL
     sequelize = new Sequelize(process.env.DATABASE_URL, {
         dialect: 'postgres',
         protocol: 'postgres',
@@ -18,7 +18,7 @@ if (process.env.DATABASE_URL) {
         define: { timestamps: true, freezeTableName: true, underscored: true }
     });
 } else {
-    // Desenvolvimento (Local)
+    // Desenvolvimento (Local) - SQLite
     sequelize = new Sequelize({
         dialect: 'sqlite',
         storage: './marcou_database.sqlite',

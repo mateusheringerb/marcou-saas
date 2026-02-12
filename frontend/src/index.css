@@ -1,0 +1,15 @@
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background-color: #f4f6f8;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+input,
+button,
+select {
+    font-size: 16px;
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="Marcou - Agendamento Ágape Connect" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <title>Marcou</title>
+</head>
+
+<body>
+    <noscript>Ative o JavaScript.</noscript>
+    <div id="root"></div>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js');
+            });
+        }
+    </script>
+</body>
+
+</html>
