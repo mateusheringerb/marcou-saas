@@ -252,6 +252,9 @@ app.delete('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (r
     } catch (e) { res.status(500).json({ erro: "Erro ao deletar." }); }
 });
 
+// 10. Configuração de Perfil e Empresa
+app.put('/api/perfil', authMiddleware, ConfigController.atualizarPerfil); // Qualquer um
+app.put('/api/config/empresa', authMiddleware, subscriptionMiddleware, ConfigController.atualizarEmpresa); // Só Dono
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3001;
