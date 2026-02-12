@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const SECRET = process.env.JWT_SECRET || "AGAPE_CONNECT_KEY_2026_MATEUS";
+const SECRET = process.env.JWT_SECRET || "Mvhb@628387*";
 
 module.exports = (req, res, next) => {
     const authHeader = req.headers['authorization'];

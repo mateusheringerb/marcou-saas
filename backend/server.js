@@ -37,7 +37,7 @@ app.use(express.json());
 
 // Configs
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "517522819247-g4tut7tgkfshr4ef3ffc3gg5tj2l73rn.apps.googleusercontent.com";
-const JWT_SECRET = process.env.JWT_SECRET || "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";
+const JWT_SECRET = process.env.JWT_SECRET || "Mvhb@628387*";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // --- ROTAS PÚBLICAS ---
