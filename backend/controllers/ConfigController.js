@@ -19,64 +19,51 @@ exports.listarEquipe = async (req, res) => {
 
 exports.adicionarMembro = async (req, res) => {
     try {
-        const { nome, email, senha, role, foto_url, atende_clientes } = req.body;
-        if (!nome || !email || !senha) return res.status(400).json({ erro: "Preencha campos." });
-
+        const { nome, email, senha, role } = req.body;
         const existe = await Usuario.findOne({ where: { email } });
-        if (existe) return res.status(400).json({ erro: "Email já cadastrado." });
+        if (existe) return res.status(400).json({ erro: "Email já em uso." });
 
         const novo = await Usuario.create({
-            nome, email, senha, foto_url,
-            role: role || 'profissional',
-            atende_clientes: atende_clientes !== undefined ? atende_clientes : true,
+            nome, email, senha, role: role || 'profissional', atende_clientes: true,
             empresaId: req.usuario.empresaId
         });
-
         res.status(201).json(novo);
     } catch (e) { res.status(500).json({ erro: "Erro ao adicionar." }); }
 };
 
 exports.removerMembro = async (req, res) => {
     try {
-        if (req.params.id == req.usuario.id) return res.status(400).json({ erro: "Não pode se excluir." });
+        if (req.params.id == req.usuario.id) return res.status(400).json({ erro: "Impossível remover a si mesmo." });
         await Usuario.destroy({ where: { id: req.params.id, empresaId: req.usuario.empresaId } });
         res.json({ ok: true });
-    } catch (e) { res.status(500).json({ erro: "Erro ao remover." }); }
+    } catch (e) { res.status(500).json({ erro: "Erro." }); }
 };
 
-// --- PERFIL ---
+// --- PERFIL & EMPRESA ---
 exports.atualizarPerfil = async (req, res) => {
     try {
         const { nome, email, foto_url, atende_clientes } = req.body;
-        const usuario = await Usuario.findByPk(req.usuario.id);
-        if (!usuario) return res.status(404).json({ erro: "Usuario não encontrado." });
+        const u = await Usuario.findByPk(req.usuario.id);
+        if (nome) u.nome = nome;
+        if (email) u.email = email;
+        if (foto_url) u.foto_url = foto_url;
+        if (atende_clientes !== undefined) u.atende_clientes = atende_clientes;
 
-        if (nome) usuario.nome = nome;
-        if (email) usuario.email = email;
-        if (foto_url) usuario.foto_url = foto_url;
-
-        // Se o usuário mandou true ou false, atualiza. Se não mandou, mantém.
-        if (atende_clientes !== undefined) usuario.atende_clientes = atende_clientes;
-
-        await usuario.save();
+        await u.save();
         res.json({ ok: true });
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ erro: "Erro ao atualizar perfil." });
-    }
+    } catch (e) { res.status(500).json({ erro: "Erro ao atualizar perfil." }); }
 };
 
 exports.atualizarEmpresa = async (req, res) => {
-    if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
+    if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido." });
     try {
         const { nome, logo_url, cor_primaria } = req.body;
-        const empresa = await Empresa.findByPk(req.usuario.empresaId);
+        const e = await Empresa.findByPk(req.usuario.empresaId);
+        if (nome) e.nome = nome;
+        if (logo_url) e.logo_url = logo_url;
+        if (cor_primaria) e.cor_primaria = cor_primaria;
 
-        if (nome) empresa.nome = nome;
-        if (logo_url) empresa.logo_url = logo_url;
-        if (cor_primaria) empresa.cor_primaria = cor_primaria;
-
-        await empresa.save();
+        await e.save();
         res.json({ ok: true });
     } catch (e) {
         console.error(e);
@@ -88,8 +75,6 @@ exports.atualizarEmpresa = async (req, res) => {
 exports.salvarHorarios = async (req, res) => {
     try {
         const horarios = req.body;
-        const empresaId = req.usuario.empresaId;
-
         await Promise.all(horarios.map(async (h) => {
             const dia = parseInt(h.dia_semana);
             const dados = {
@@ -99,48 +84,43 @@ exports.salvarHorarios = async (req, res) => {
                 almoco_inicio: h.almoco_inicio || null,
                 almoco_fim: h.almoco_fim || null,
                 ativo: h.ativo,
-                empresaId: empresaId
+                empresaId: req.usuario.empresaId
             };
-            const config = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: dia } });
-            if (config) await config.update(dados);
-            else await HorarioFuncionamento.create(dados);
+            const conf = await HorarioFuncionamento.findOne({ where: { empresaId: req.usuario.empresaId, dia_semana: dia } });
+            if (conf) await conf.update(dados); else await HorarioFuncionamento.create(dados);
         }));
-        res.json({ mensagem: "Salvo!" });
+        res.json({ ok: true });
     } catch (e) { res.status(500).json({ erro: "Erro." }); }
 };
 
 exports.listarHorarios = async (req, res) => {
     try {
-        const horarios = await HorarioFuncionamento.findAll({
-            where: { empresaId: req.usuario.empresaId },
-            order: [['dia_semana', 'ASC']]
-        });
-        res.json(horarios);
+        const h = await HorarioFuncionamento.findAll({ where: { empresaId: req.usuario.empresaId }, order: [['dia_semana', 'ASC']] });
+        res.json(h);
     } catch (e) { res.status(500).json({ erro: "Erro." }); }
 };
 
-// --- SLOTS (LÓGICA CORRIGIDA PARA O BRASIL) ---
+// --- SLOTS (CORRIGIDO PARA O BRASIL) ---
 exports.buscarDisponibilidade = async (req, res) => {
     try {
         const { data, servicoId, profissionalId } = req.query;
         const empresaId = req.usuario.empresaId;
 
         const servico = await Servico.findByPk(servicoId);
-        if (!servico) return res.status(404).json({ erro: "Serviço inválido" });
+        if (!servico) return res.status(404).json({ erro: "Serviço?" });
         const duracao = parseInt(servico.duracao_minutos);
 
         const dataRef = moment(data).format('YYYY-MM-DD');
         const diaSemana = moment(dataRef).day();
 
         const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
-        // Se não tiver regra ou ativo = false, retorna vazio
         if (!regra || !regra.ativo) return res.json([]);
 
-        const toMin = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-        const abertura = toMin(regra.abertura);
-        const fechamento = toMin(regra.fechamento);
-        const almocoIni = toMin(regra.almoco_inicio);
-        const almocoFim = toMin(regra.almoco_fim);
+        const toMin = (t) => t ? parseInt(t.split(':')[0]) * 60 + parseInt(t.split(':')[1]) : null;
+        const aber = toMin(regra.abertura);
+        const fech = toMin(regra.fechamento);
+        const almI = toMin(regra.almoco_inicio);
+        const almF = toMin(regra.almoco_fim);
 
         const agendamentos = await Agendamento.findAll({
             where: {
@@ -149,36 +129,35 @@ exports.buscarDisponibilidade = async (req, res) => {
             }
         });
 
-        const ocupacoes = agendamentos.map(ag => {
-            const i = moment(ag.data_hora_inicio); const f = moment(ag.data_hora_fim);
-            return { inicio: i.hours() * 60 + i.minutes(), fim: f.hours() * 60 + f.minutes() };
+        const ocupacoes = agendamentos.map(a => {
+            const i = moment(a.data_hora_inicio); const f = moment(a.data_hora_fim);
+            return { ini: i.hours() * 60 + i.minutes(), fim: f.hours() * 60 + f.minutes() };
         });
 
         let slots = [];
-        let cursor = abertura;
+        let cursor = aber;
 
-        // FUSO HORÁRIO BRASIL (-3)
-        // Isso garante que se for 18h no servidor (UTC) mas 15h no Brasil, ainda mostre horários
-        const agoraBrasil = moment().utcOffset(-3);
-        const ehHoje = agoraBrasil.format('YYYY-MM-DD') === dataRef;
-        const minutosAgora = agoraBrasil.hours() * 60 + agoraBrasil.minutes();
+        // CORREÇÃO DE TIMEZONE: Força horário de Brasília (-3)
+        const agoraBR = moment().utcOffset(-3);
+        const ehHoje = agoraBR.format('YYYY-MM-DD') === dataRef;
+        const minAgora = agoraBR.hours() * 60 + agoraBR.minutes();
 
-        while (cursor + duracao <= fechamento) {
+        while (cursor + duracao <= fech) {
             const ini = cursor; const fim = cursor + duracao;
             let livre = true;
 
-            // Bloqueio de Passado (Com buffer de 30min para não agendar muito em cima)
-            if (ehHoje && ini <= (minutosAgora + 30)) livre = false;
+            // Bloqueia passado (com margem de 15 min)
+            if (ehHoje && ini < (minAgora + 15)) livre = false;
 
-            // Bloqueio de Almoço (Só se tiver horário definido)
-            if (livre && almocoIni !== null && almocoFim !== null) {
-                if ((ini >= almocoIni && ini < almocoFim) || (fim > almocoIni && fim <= almocoFim) || (ini <= almocoIni && fim >= almocoFim)) livre = false;
+            // Bloqueia almoço
+            if (livre && almI !== null && almF !== null) {
+                if ((ini >= almI && ini < almF) || (fim > almI && fim <= almF) || (ini <= almI && fim >= almF)) livre = false;
             }
 
-            // Bloqueio de Agendamentos
+            // Bloqueia agendamentos
             if (livre) {
-                for (const oc of ocupacoes) {
-                    if (ini < oc.fim && fim > oc.inicio) { livre = false; break; }
+                for (const o of ocupacoes) {
+                    if (ini < o.fim && fim > o.ini) { livre = false; break; }
                 }
             }
 
@@ -187,11 +166,8 @@ exports.buscarDisponibilidade = async (req, res) => {
                 const m = (ini % 60).toString().padStart(2, '0');
                 slots.push(`${h}:${m}`);
             }
-            cursor += 30;
+            cursor += 30; // Pula de 30 em 30 min
         }
         res.json(slots);
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ erro: "Erro ao calcular slots." });
-    }
+    } catch (e) { console.error(e); res.status(500).json({ erro: "Erro slots." }); }
 };

@@ -6,50 +6,60 @@ const HorarioFuncionamento = require('./models/HorarioFuncionamento');
 
 async function seed() {
     try {
-        // ATENÇÃO: FORCE TRUE APAGA TUDO. USE COM CUIDADO EM PRODUÇÃO
         await database.sync({ force: true });
         console.log("Banco resetado.");
 
-        const emp = await Empresa.create({
-            nome: "Barbearia Modelo",
-            slug: "barbearia-modelo",
-            cor_primaria: "#0f172a",
+        // 1. EMPRESA ADMIN (O Backoffice)
+        const adminCorp = await Empresa.create({
+            nome: "Backoffice Marcou",
+            slug: "admin",
+            cor_primaria: "#000000",
             plano: "pro",
-            data_expiracao: new Date(2027, 1, 1)
+            data_expiracao: new Date(2099, 11, 31)
         });
 
-        // Cria Admin (Dono)
+        // 2. SEU USUÁRIO MESTRE
         await Usuario.create({
-            nome: "Admin",
-            email: "admin@modelo.com",
+            nome: "Mateus Admin",
+            email: "mateus@admin.com", // USE ESTE EMAIL
+            senha: "123",              // USE ESTA SENHA
+            role: "admin_geral",
+            atende_clientes: false,
+            empresaId: adminCorp.id
+        });
+
+        console.log("✅ Super Admin criado: mateus@admin.com / 123");
+
+        // 3. BARBEARIA DE EXEMPLO (Para testar o app)
+        const barbearia = await Empresa.create({
+            nome: "Barbearia do João",
+            slug: "barbearia-joao",
+            cor_primaria: "#0f172a",
+            plano: "basico",
+            data_expiracao: new Date(2026, 11, 31)
+        });
+
+        await Usuario.create({
+            nome: "João Dono",
+            email: "joao@barbearia.com",
             senha: "123",
             role: "dono",
-            atende_clientes: false, // Dono começa não atendendo (backoffice)
-            empresaId: emp.id
+            atende_clientes: true, // Dono que atende
+            empresaId: barbearia.id
         });
 
-        // Cria Profissional Exemplo
-        await Usuario.create({
-            nome: "Barbeiro João",
-            email: "joao@modelo.com",
-            senha: "123",
-            role: "profissional",
-            atende_clientes: true,
-            empresaId: emp.id
-        });
+        await Servico.create({ nome: "Corte", preco: 30.00, duracao_minutos: 30, empresaId: barbearia.id });
 
-        await Servico.create({ nome: "Corte Cabelo", descricao: "Máquina e Tesoura", preco: 35.00, duracao_minutos: 40, empresaId: emp.id });
-
-        // Horários Padrão (Seg-Sáb 9h-18h)
-        for (let i = 1; i <= 6; i++) {
+        for (let i = 0; i <= 6; i++) {
             await HorarioFuncionamento.create({
-                dia_semana: i, abertura: "09:00", fechamento: "19:00", almoco_inicio: "12:00", almoco_fim: "13:00", ativo: true, empresaId: emp.id
+                dia_semana: i, ativo: i !== 0,
+                abertura: "09:00", fechamento: "19:00",
+                empresaId: barbearia.id
             });
         }
-        // Domingo
-        await HorarioFuncionamento.create({ dia_semana: 0, ativo: false, empresaId: emp.id });
 
-        console.log("Dados criados com sucesso.");
+        console.log("✅ Dados de exemplo criados.");
+
     } catch (e) { console.error(e); }
 }
 seed();
