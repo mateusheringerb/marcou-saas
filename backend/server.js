@@ -11,20 +11,23 @@ const Empresa = require('./models/Empresa');
 const Usuario = require('./models/Usuario');
 const Servico = require('./models/Servico');
 const Agendamento = require('./models/Agendamento');
+const HorarioFuncionamento = require('./models/HorarioFuncionamento'); // Novo
 
 // Controladores
 const AgendamentoController = require('./controllers/AgendamentoController');
+const ConfigController = require('./controllers/ConfigController'); // Novo
 const authMiddleware = require('./middlewares/authMiddleware');
 const subscriptionMiddleware = require('./middlewares/subscriptionMiddleware');
 
 const app = express();
 
-// Configuração CORS (Permite Vercel e Localhost)
+// Configuração CORS dinâmica para Vercel
 const allowedOrigins = [
     'http://localhost:3000',
     'https://marcou.agapeconnect.com.br',
     'https://marcou-frontend.vercel.app'
 ];
+
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
@@ -35,7 +38,7 @@ app.use(cors({
 app.use(helmet());
 app.use(express.json());
 
-// Configs
+// --- CHAVES DO USUÁRIO ---
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "517522819247-g4tut7tgkfshr4ef3ffc3gg5tj2l73rn.apps.googleusercontent.com";
 const JWT_SECRET = process.env.JWT_SECRET || "Mvhb@628387*";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
@@ -69,7 +72,10 @@ app.post('/api/login/google', async (req, res) => {
 
         const appToken = jwt.sign({ id: usuario.id, role: usuario.role, empresaId: usuario.empresaId }, JWT_SECRET, { expiresIn: '24h' });
         res.json({ token: appToken, usuario: { id: usuario.id, nome: usuario.nome, role: usuario.role } });
-    } catch (e) { res.status(401).json({ erro: "Autenticação Google falhou." }); }
+    } catch (e) {
+        console.error(e);
+        res.status(401).json({ erro: "Google Auth falhou." });
+    }
 });
 
 app.post('/api/cadastro', async (req, res) => {
@@ -94,11 +100,25 @@ app.get('/api/empresa/:slug', async (req, res) => {
 });
 
 // --- ROTAS PRIVADAS ---
+
+// Agendamentos
 app.get('/api/agendamentos/meus', authMiddleware, AgendamentoController.listarMeusAgendamentos);
 app.get('/api/agendamentos/empresa', authMiddleware, subscriptionMiddleware, AgendamentoController.listarAgendamentosEmpresa);
 app.post('/api/agendar', authMiddleware, subscriptionMiddleware, AgendamentoController.criarAgendamento);
 
-// CRUD de Serviços (Aqui no server.js para simplificar)
+// Gestão de Equipe (NOVO)
+app.get('/api/equipe', authMiddleware, ConfigController.listarEquipe);
+app.post('/api/equipe', authMiddleware, subscriptionMiddleware, ConfigController.adicionarMembro);
+app.delete('/api/equipe/:id', authMiddleware, subscriptionMiddleware, ConfigController.removerMembro);
+
+// Configuração de Horários (NOVO)
+app.get('/api/config/horarios', authMiddleware, ConfigController.listarHorarios);
+app.post('/api/config/horarios', authMiddleware, subscriptionMiddleware, ConfigController.salvarHorarios);
+
+// Disponibilidade de Slots (NOVO)
+app.get('/api/disponibilidade', authMiddleware, ConfigController.buscarDisponibilidade);
+
+// Serviços
 app.get('/api/servicos', authMiddleware, async (req, res) => {
     const s = await Servico.findAll({ where: { empresaId: req.usuario.empresaId } });
     res.json(s);
