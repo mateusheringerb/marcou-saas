@@ -31,13 +31,13 @@ const Login = ({ empresa, aoLogar }) => {
     };
 
     return (
-        <div style={{ padding: 25, maxWidth: 400, background: '#fff', borderRadius: 8, boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+        <div className="card" style={{ maxWidth: 400, margin: '20px auto' }}>
             <h2 style={{ textAlign: 'center', color: empresa.cor_primaria }}>Entrar</h2>
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-                <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required style={{ padding: 10 }} />
-                <input type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} required style={{ padding: 10 }} />
+                <input className="input-modern" type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
+                <input className="input-modern" type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} required />
                 <label style={{ fontSize: 14 }}><input type="checkbox" checked={manter} onChange={e => setManter(e.target.checked)} /> Manter conectado</label>
-                <button type="submit" style={{ padding: 12, background: empresa.cor_primaria, color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer' }}>ENTRAR</button>
+                <button type="submit" className="btn btn-primary" style={{ backgroundColor: empresa.cor_primaria }}>ENTRAR</button>
             </form>
             <div style={{ margin: '20px 0', textAlign: 'center', fontSize: 12, color: '#999' }}>OU ENTRE COM</div>
             <div style={{ display: 'flex', justifyContent: 'center' }}>

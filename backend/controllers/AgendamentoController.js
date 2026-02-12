@@ -1,3 +1,4 @@
+// Gerencio a criação e listagem de agendamentos
 const Agendamento = require('../models/Agendamento');
 const Servico = require('../models/Servico');
 const Usuario = require('../models/Usuario');
@@ -10,29 +11,25 @@ exports.criarAgendamento = async (req, res) => {
         const empresaId = req.usuario.empresaId;
 
         if (!servicoId || !dataHoraInicio) return res.status(400).json({ erro: "Dados incompletos." });
-
-        // Se for dono agendando, exige profissionalId.
-        if (req.usuario.role === 'dono' && !profissionalId) {
-            return res.status(400).json({ erro: "Erro: Profissional não identificado." });
-        }
+        if (req.usuario.role === 'dono' && !profissionalId) return res.status(400).json({ erro: "Profissional obrigatório." });
 
         let clienteId = req.usuario.id;
         let nomeAvulso = null;
 
-        // Lógica de agendamento manual
         if (req.usuario.role === 'dono' && nomeClienteAvulso) {
             clienteId = null;
             nomeAvulso = nomeClienteAvulso;
         }
 
         const servico = await Servico.findByPk(servicoId);
-        if (!servico) return res.status(404).json({ erro: "Serviço não encontrado." });
+        if (!servico) return res.status(404).json({ erro: "Serviço não existe." });
 
         const inicio = moment(dataHoraInicio);
         const fim = moment(inicio).add(servico.duracao_minutos, 'minutes');
 
         if (inicio.isBefore(moment())) return res.status(400).json({ erro: "Data inválida (passado)." });
 
+        // Validação dupla (backup de segurança contra colisão)
         const conflito = await Agendamento.findOne({
             where: {
                 empresaId,
@@ -40,8 +37,7 @@ exports.criarAgendamento = async (req, res) => {
                 status: { [Op.not]: 'cancelado' },
                 [Op.or]: [
                     { data_hora_inicio: { [Op.between]: [inicio.toDate(), fim.toDate()] } },
-                    { data_hora_fim: { [Op.between]: [inicio.toDate(), fim.toDate()] } },
-                    { [Op.and]: [{ data_hora_inicio: { [Op.lte]: inicio.toDate() } }, { data_hora_fim: { [Op.gte]: fim.toDate() } }] }
+                    { data_hora_fim: { [Op.between]: [inicio.toDate(), fim.toDate()] } }
                 ]
             }
         });
@@ -54,7 +50,7 @@ exports.criarAgendamento = async (req, res) => {
         });
 
         res.status(201).json(novo);
-    } catch (error) { res.status(500).json({ erro: "Erro interno ao agendar." }); }
+    } catch (error) { res.status(500).json({ erro: "Erro interno." }); }
 };
 
 exports.listarMeusAgendamentos = async (req, res) => {

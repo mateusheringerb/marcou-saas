@@ -1,10 +1,12 @@
+// Configuração do meu banco de dados.
+// Se eu estiver na nuvem (Render), usa Postgres. Se estiver no meu PC, usa SQLite.
 require('dotenv').config();
 const Sequelize = require('sequelize');
 
 let sequelize;
 
 if (process.env.DATABASE_URL) {
-    // Produção (Render/Neon/Supabase) - PostgreSQL
+    // Estou na produção (Neon/Render)
     sequelize = new Sequelize(process.env.DATABASE_URL, {
         dialect: 'postgres',
         protocol: 'postgres',
@@ -18,7 +20,7 @@ if (process.env.DATABASE_URL) {
         define: { timestamps: true, freezeTableName: true, underscored: true }
     });
 } else {
-    // Desenvolvimento (Local) - SQLite
+    // Estou no meu computador local
     sequelize = new Sequelize({
         dialect: 'sqlite',
         storage: './marcou_database.sqlite',

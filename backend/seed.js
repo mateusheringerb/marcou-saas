@@ -1,9 +1,9 @@
+// Script para resetar e criar dados de teste
 const database = require('./config/database');
 const Empresa = require('./models/Empresa');
 const Usuario = require('./models/Usuario');
 const Servico = require('./models/Servico');
-const Agendamento = require('./models/Agendamento');
-const HorarioFuncionamento = require('./models/HorarioFuncionamento'); // Importe Novo
+const HorarioFuncionamento = require('./models/HorarioFuncionamento');
 
 async function seed() {
     try {
@@ -23,17 +23,12 @@ async function seed() {
 
         await Servico.create({ nome: "Corte Simples", descricao: "Apenas máquina", preco: 25.00, duracao_minutos: 30, empresaId: emp.id });
 
-        // CRIAÇÃO DE HORÁRIOS PADRÃO (Seg a Sáb, 9h às 18h)
+        // Horários padrão
         for (let i = 1; i <= 6; i++) {
             await HorarioFuncionamento.create({
-                dia_semana: i,
-                abertura: "09:00",
-                fechamento: "18:00",
-                ativo: true,
-                empresaId: emp.id
+                dia_semana: i, abertura: "09:00", fechamento: "18:00", ativo: true, empresaId: emp.id
             });
         }
-        // Domingo fechado
         await HorarioFuncionamento.create({ dia_semana: 0, ativo: false, empresaId: emp.id });
 
         console.log("Dados criados com sucesso.");

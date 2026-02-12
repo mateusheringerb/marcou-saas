@@ -1,3 +1,4 @@
+// Coração da minha API
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -11,17 +12,17 @@ const Empresa = require('./models/Empresa');
 const Usuario = require('./models/Usuario');
 const Servico = require('./models/Servico');
 const Agendamento = require('./models/Agendamento');
-const HorarioFuncionamento = require('./models/HorarioFuncionamento'); // Novo
+const HorarioFuncionamento = require('./models/HorarioFuncionamento');
 
 // Controladores
 const AgendamentoController = require('./controllers/AgendamentoController');
-const ConfigController = require('./controllers/ConfigController'); // Novo
+const ConfigController = require('./controllers/ConfigController');
 const authMiddleware = require('./middlewares/authMiddleware');
 const subscriptionMiddleware = require('./middlewares/subscriptionMiddleware');
 
 const app = express();
 
-// Configuração CORS dinâmica para Vercel
+// Lista de sites que podem acessar meu backend
 const allowedOrigins = [
     'http://localhost:3000',
     'https://marcou.agapeconnect.com.br',
@@ -38,13 +39,24 @@ app.use(cors({
 app.use(helmet());
 app.use(express.json());
 
-// --- CHAVES DO USUÁRIO ---
+// --- MINHAS CHAVES SECRETAS ---
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "517522819247-g4tut7tgkfshr4ef3ffc3gg5tj2l73rn.apps.googleusercontent.com";
 const JWT_SECRET = process.env.JWT_SECRET || "Mvhb@628387*";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // --- ROTAS PÚBLICAS ---
 
+// Rota para a Landing Page (Lista empresas)
+app.get('/api/empresas', async (req, res) => {
+    try {
+        const empresas = await Empresa.findAll({
+            attributes: ['id', 'nome', 'slug', 'logo_url', 'cor_primaria']
+        });
+        res.json(empresas);
+    } catch (e) { res.status(500).json({ erro: "Erro ao buscar empresas" }); }
+});
+
+// Login com Email/Senha
 app.post('/api/login', async (req, res) => {
     try {
         const { email, senha } = req.body;
@@ -56,6 +68,7 @@ app.post('/api/login', async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro interno." }); }
 });
 
+// Login com Google
 app.post('/api/login/google', async (req, res) => {
     try {
         const { token, slug } = req.body;
@@ -78,6 +91,7 @@ app.post('/api/login/google', async (req, res) => {
     }
 });
 
+// Cadastro Normal
 app.post('/api/cadastro', async (req, res) => {
     try {
         const { nome, email, senha, slug } = req.body;
@@ -93,6 +107,7 @@ app.post('/api/cadastro', async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro no cadastro." }); }
 });
 
+// Dados públicos da empresa (cores, nome)
 app.get('/api/empresa/:slug', async (req, res) => {
     const emp = await Empresa.findOne({ where: { slug: req.params.slug } });
     if (!emp) return res.status(404).json({ erro: "Não encontrada" });
@@ -101,37 +116,41 @@ app.get('/api/empresa/:slug', async (req, res) => {
 
 // --- ROTAS PRIVADAS ---
 
-// Agendamentos
+// Agendamento
 app.get('/api/agendamentos/meus', authMiddleware, AgendamentoController.listarMeusAgendamentos);
 app.get('/api/agendamentos/empresa', authMiddleware, subscriptionMiddleware, AgendamentoController.listarAgendamentosEmpresa);
 app.post('/api/agendar', authMiddleware, subscriptionMiddleware, AgendamentoController.criarAgendamento);
 
-// Gestão de Equipe (NOVO)
+// Gestão (Equipe, Horários, Slots)
 app.get('/api/equipe', authMiddleware, ConfigController.listarEquipe);
 app.post('/api/equipe', authMiddleware, subscriptionMiddleware, ConfigController.adicionarMembro);
 app.delete('/api/equipe/:id', authMiddleware, subscriptionMiddleware, ConfigController.removerMembro);
-
-// Configuração de Horários (NOVO)
 app.get('/api/config/horarios', authMiddleware, ConfigController.listarHorarios);
 app.post('/api/config/horarios', authMiddleware, subscriptionMiddleware, ConfigController.salvarHorarios);
-
-// Disponibilidade de Slots (NOVO)
 app.get('/api/disponibilidade', authMiddleware, ConfigController.buscarDisponibilidade);
 
-// Serviços
+// Serviços (Garanti que converte para float/int para evitar bug)
 app.get('/api/servicos', authMiddleware, async (req, res) => {
     const s = await Servico.findAll({ where: { empresaId: req.usuario.empresaId } });
     res.json(s);
 });
 app.post('/api/servicos', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono' && req.usuario.role !== 'admin_geral') return res.status(403).json({ erro: "Proibido" });
-    const s = await Servico.create({ ...req.body, empresaId: req.usuario.empresaId });
-    res.json(s);
+    try {
+        const dados = { ...req.body, preco: parseFloat(req.body.preco), duracao_minutos: parseInt(req.body.duracao_minutos), empresaId: req.usuario.empresaId };
+        const s = await Servico.create(dados);
+        res.json(s);
+    } catch (e) { res.status(500).json({ erro: "Erro ao criar serviço" }); }
 });
 app.put('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
-    const s = await Servico.findOne({ where: { id: req.params.id } });
-    if (s) { await s.update(req.body); res.json(s); } else res.status(404).json({ erro: "Não encontrado" });
+    try {
+        const s = await Servico.findOne({ where: { id: req.params.id } });
+        if (s) {
+            await s.update({ ...req.body, preco: parseFloat(req.body.preco), duracao_minutos: parseInt(req.body.duracao_minutos) });
+            res.json(s);
+        } else res.status(404).json({ erro: "Não encontrado" });
+    } catch (e) { res.status(500).json({ erro: "Erro ao atualizar" }); }
 });
 app.delete('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
@@ -139,7 +158,7 @@ app.delete('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (r
     res.json({ ok: true });
 });
 
-// Inicialização
+// Ligar o servidor
 const PORT = process.env.PORT || 3001;
 database.sync({ force: false }).then(() => {
     app.listen(PORT, () => console.log(`🚀 API RODANDO NA PORTA ${PORT}`));

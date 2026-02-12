@@ -1,3 +1,4 @@
+// Aqui eu gerencio a Equipe, os Horários e calculo os Slots livres
 const HorarioFuncionamento = require('../models/HorarioFuncionamento');
 const Agendamento = require('../models/Agendamento');
 const Servico = require('../models/Servico');
@@ -5,13 +6,12 @@ const Usuario = require('../models/Usuario');
 const { Op } = require('sequelize');
 const moment = require('moment');
 
-// --- GERENCIAR EQUIPE ---
+// --- EQUIPE ---
 exports.listarEquipe = async (req, res) => {
     try {
-        // Retorna donos e profissionais desta empresa
         const equipe = await Usuario.findAll({
             where: { empresaId: req.usuario.empresaId, role: ['dono', 'profissional'] },
-            attributes: ['id', 'nome', 'email', 'role'] // Não retorna a senha por segurança
+            attributes: ['id', 'nome', 'email', 'role']
         });
         res.json(equipe);
     } catch (e) { res.status(500).json({ erro: "Erro ao listar equipe." }); }
@@ -25,7 +25,7 @@ exports.adicionarMembro = async (req, res) => {
         if (existe) return res.status(400).json({ erro: "Email já cadastrado." });
 
         const novo = await Usuario.create({
-            nome, email, senha, role, // role deve ser 'profissional' ou 'dono'
+            nome, email, senha, role,
             empresaId: req.usuario.empresaId
         });
         res.status(201).json(novo);
@@ -39,10 +39,10 @@ exports.removerMembro = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro ao remover." }); }
 };
 
-// --- GERENCIAR HORÁRIOS DE FUNCIONAMENTO ---
+// --- HORÁRIOS ---
 exports.salvarHorarios = async (req, res) => {
     try {
-        const horarios = req.body; // Recebe array do frontend
+        const horarios = req.body;
 
         for (const h of horarios) {
             let config = await HorarioFuncionamento.findOne({
@@ -65,39 +65,30 @@ exports.listarHorarios = async (req, res) => {
             where: { empresaId: req.usuario.empresaId },
             order: [['dia_semana', 'ASC']]
         });
-
-        if (horarios.length === 0) {
-            return res.json([]);
-        }
+        if (horarios.length === 0) return res.json([]);
         res.json(horarios);
     } catch (e) { res.status(500).json({ erro: "Erro ao buscar horários." }); }
 };
 
-// --- CÁLCULO DE DISPONIBILIDADE (SLOTS) ---
+// --- SLOTS (Cálculo Matemático) ---
 exports.buscarDisponibilidade = async (req, res) => {
     try {
         const { data, servicoId, profissionalId } = req.query;
-        // Pega a empresa do usuário logado OU da query string se for rota pública (futuro)
+        // Pego o ID da empresa do token de quem está logado
         const empresaId = req.usuario.empresaId;
 
-        // 1. Descobrir dia da semana (0=Dom, 1=Seg...)
         const diaSemana = moment(data).day();
 
-        // 2. Buscar regra de funcionamento
         const regra = await HorarioFuncionamento.findOne({
             where: { empresaId, dia_semana: diaSemana }
         });
 
-        if (!regra || !regra.ativo) {
-            return res.json([]); // Fechado neste dia
-        }
+        if (!regra || !regra.ativo) return res.json([]); // Fechado
 
-        // 3. Duração do serviço
         const servico = await Servico.findByPk(servicoId);
         if (!servico) return res.status(404).json({ erro: "Serviço não encontrado" });
         const duracao = servico.duracao_minutos;
 
-        // 4. Buscar agendamentos existentes
         const agendamentos = await Agendamento.findAll({
             where: {
                 empresaId,
@@ -112,7 +103,6 @@ exports.buscarDisponibilidade = async (req, res) => {
             }
         });
 
-        // 5. Gerar Slots
         let slots = [];
         let cursor = moment(`${data} ${regra.abertura}`);
         const fimDia = moment(`${data} ${regra.fechamento}`);
@@ -120,31 +110,21 @@ exports.buscarDisponibilidade = async (req, res) => {
         while (cursor.clone().add(duracao, 'minutes').isSameOrBefore(fimDia)) {
             const inicioSlot = cursor.clone();
             const fimSlot = cursor.clone().add(duracao, 'minutes');
-
             let ocupado = false;
 
-            // Colisão com agendamentos
             for (const ag of agendamentos) {
                 const agInicio = moment(ag.data_hora_inicio);
                 const agFim = moment(ag.data_hora_fim);
-
                 if (inicioSlot.isBefore(agFim) && fimSlot.isAfter(agInicio)) {
                     ocupado = true;
                     break;
                 }
             }
 
-            // Não mostrar horários passados (se for hoje)
-            if (inicioSlot.isBefore(moment())) {
-                ocupado = true;
-            }
+            if (inicioSlot.isBefore(moment())) ocupado = true; // Passado
 
-            if (!ocupado) {
-                slots.push(inicioSlot.format('HH:mm'));
-            }
-
-            // Intervalo de grade: 30 minutos (Pode ajustar aqui se quiser slots de 15 em 15 ou igual a duração)
-            cursor.add(30, 'minutes');
+            if (!ocupado) slots.push(inicioSlot.format('HH:mm'));
+            cursor.add(30, 'minutes'); // Grade de 30 min
         }
 
         res.json(slots);

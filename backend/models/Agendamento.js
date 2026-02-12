@@ -1,3 +1,4 @@
+// Tabela principal: Os agendamentos
 const Sequelize = require('sequelize');
 const database = require('../config/database');
 const Empresa = require('./Empresa');
@@ -9,7 +10,7 @@ const Agendamento = database.define('agendamento', {
     data_hora_inicio: { type: Sequelize.DATE, allowNull: false },
     data_hora_fim: { type: Sequelize.DATE, allowNull: false },
     status: { type: Sequelize.ENUM('pendente', 'confirmado', 'concluido', 'cancelado'), defaultValue: 'confirmado' },
-    nome_cliente_avulso: { type: Sequelize.STRING, allowNull: true }, // Para agendamento manual
+    nome_cliente_avulso: { type: Sequelize.STRING, allowNull: true }, // Se for agendado manualmente pelo dono
     observacoes: { type: Sequelize.STRING, allowNull: true }
 });
 

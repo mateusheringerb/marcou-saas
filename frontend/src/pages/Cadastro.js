@@ -18,13 +18,13 @@ const Cadastro = ({ empresa, aoLogar }) => {
     };
 
     return (
-        <div style={{ padding: 25, maxWidth: 400, background: '#fff', borderRadius: 8, boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+        <div className="card" style={{ maxWidth: 400, margin: '20px auto' }}>
             <h2 style={{ textAlign: 'center', color: empresa.cor_primaria }}>Criar Conta</h2>
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-                <input placeholder="Nome" value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} required style={{ padding: 10 }} />
-                <input placeholder="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required style={{ padding: 10 }} />
-                <input placeholder="Senha" type="password" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} required style={{ padding: 10 }} />
-                <button type="submit" style={{ padding: 12, background: empresa.cor_primaria, color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer' }}>CADASTRAR</button>
+                <input className="input-modern" placeholder="Nome" value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} required />
+                <input className="input-modern" placeholder="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
+                <input className="input-modern" placeholder="Senha" type="password" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} required />
+                <button type="submit" className="btn btn-primary" style={{ backgroundColor: empresa.cor_primaria }}>CADASTRAR</button>
             </form>
             <div style={{ marginTop: 20, textAlign: 'center', fontSize: 14 }}>
                 <Link to={`/${slug}/login`}>Já tenho conta</Link>
