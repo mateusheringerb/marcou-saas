@@ -1,3 +1,6 @@
+// ARQUIVO: backend/controllers/ConfigController.js
+// Controle total de Equipe, Horários e Slots Matemáticos
+
 const HorarioFuncionamento = require('../models/HorarioFuncionamento');
 const Agendamento = require('../models/Agendamento');
 const Servico = require('../models/Servico');
@@ -21,8 +24,9 @@ exports.adicionarMembro = async (req, res) => {
         const { nome, email, senha, role } = req.body;
         if (!nome || !email || !senha) return res.status(400).json({ erro: "Preencha todos os campos." });
 
+        // Verifica se o email já existe no sistema todo
         const existe = await Usuario.findOne({ where: { email } });
-        if (existe) return res.status(400).json({ erro: "Email já cadastrado em outra conta." });
+        if (existe) return res.status(400).json({ erro: "Este email já possui conta no sistema." });
 
         const novo = await Usuario.create({
             nome, email, senha,
@@ -32,13 +36,16 @@ exports.adicionarMembro = async (req, res) => {
 
         res.status(201).json({ id: novo.id, nome: novo.nome, email: novo.email, role: novo.role });
     } catch (e) {
-        console.error(e);
-        res.status(500).json({ erro: "Erro interno. Tente outro email." });
+        console.error("Erro add membro:", e);
+        res.status(500).json({ erro: "Erro interno ao salvar membro." });
     }
 };
 
 exports.removerMembro = async (req, res) => {
     try {
+        // Impede que o dono se exclua
+        if (req.params.id == req.usuario.id) return res.status(400).json({ erro: "Você não pode se excluir." });
+
         await Usuario.destroy({ where: { id: req.params.id, empresaId: req.usuario.empresaId } });
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ erro: "Erro ao remover." }); }
@@ -50,14 +57,15 @@ exports.salvarHorarios = async (req, res) => {
         const horarios = req.body;
         const empresaId = req.usuario.empresaId;
 
-        for (const h of horarios) {
+        // Uso Promise.all para salvar tudo em paralelo e rápido
+        await Promise.all(horarios.map(async (h) => {
             const dia = parseInt(h.dia_semana);
             const dados = {
                 dia_semana: dia,
-                abertura: h.abertura,
-                fechamento: h.fechamento,
-                almoco_inicio: h.almoco_inicio, // NOVO CAMPO
-                almoco_fim: h.almoco_fim,       // NOVO CAMPO
+                abertura: h.abertura || "09:00",
+                fechamento: h.fechamento || "18:00",
+                almoco_inicio: h.almoco_inicio || null,
+                almoco_fim: h.almoco_fim || null,
                 ativo: h.ativo,
                 empresaId: empresaId
             };
@@ -66,8 +74,9 @@ exports.salvarHorarios = async (req, res) => {
 
             if (config) await config.update(dados);
             else await HorarioFuncionamento.create(dados);
-        }
-        res.json({ mensagem: "Horários salvos com sucesso!" });
+        }));
+
+        res.json({ mensagem: "Horários salvos!" });
     } catch (e) {
         console.error(e);
         res.status(500).json({ erro: "Erro ao salvar horários." });
@@ -84,80 +93,117 @@ exports.listarHorarios = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro ao buscar horários." }); }
 };
 
-// --- SLOTS (AGORA COM ALMOÇO) ---
+// --- SLOTS MATEMÁTICOS (A Lógica "Foda") ---
 exports.buscarDisponibilidade = async (req, res) => {
     try {
         const { data, servicoId, profissionalId } = req.query;
         const empresaId = req.usuario.empresaId;
 
-        // 1. Validar Dia
-        const diaSemana = moment(data).day();
-        const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
-
-        if (!regra || !regra.ativo) return res.json([]);
-
-        // 2. Serviço
+        // 1. Dados Básicos
         const servico = await Servico.findByPk(servicoId);
-        if (!servico) return res.status(404).json({ erro: "Serviço inválido" });
-        const duracao = servico.duracao_minutos;
+        if (!servico) return res.status(404).json({ erro: "Serviço não encontrado" });
+        const duracao = parseInt(servico.duracao_minutos);
 
-        // 3. Agendamentos
+        // 2. Data e Dia da Semana
+        const dataRef = moment(data).format('YYYY-MM-DD');
+        const diaSemana = moment(dataRef).day();
+
+        // 3. Regra do Dia
+        const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
+        if (!regra || !regra.ativo) return res.json([]); // Fechado
+
+        // Função: Converte "09:30" para minutos (570)
+        const toMin = (time) => {
+            if (!time) return null;
+            const [h, m] = time.split(':').map(Number);
+            return h * 60 + m;
+        };
+
+        const abertura = toMin(regra.abertura);
+        const fechamento = toMin(regra.fechamento);
+        const almocoIni = toMin(regra.almoco_inicio);
+        const almocoFim = toMin(regra.almoco_fim);
+
+        // 4. Buscar Agendamentos do Dia
         const agendamentos = await Agendamento.findAll({
             where: {
                 empresaId,
                 profissionalId,
                 status: { [Op.not]: 'cancelado' },
                 data_hora_inicio: {
-                    [Op.between]: [moment(data).startOf('day').toDate(), moment(data).endOf('day').toDate()]
+                    [Op.between]: [
+                        moment(dataRef).startOf('day').toDate(),
+                        moment(dataRef).endOf('day').toDate()
+                    ]
                 }
             }
         });
 
-        // 4. Gerar Slots
+        // Mapeia agendamentos para intervalos em minutos
+        const ocupacoes = agendamentos.map(ag => {
+            const inicio = moment(ag.data_hora_inicio);
+            const fim = moment(ag.data_hora_fim);
+            return {
+                inicio: inicio.hours() * 60 + inicio.minutes(),
+                fim: fim.hours() * 60 + fim.minutes()
+            };
+        });
+
+        // 5. Cálculo de Slots
         let slots = [];
-        let cursor = moment(`${data} ${regra.abertura}`);
-        const fimDia = moment(`${data} ${regra.fechamento}`);
+        let cursor = abertura;
 
-        // Define intervalo de almoço
-        const almocoInicio = regra.almoco_inicio ? moment(`${data} ${regra.almoco_inicio}`) : null;
-        const almocoFim = regra.almoco_fim ? moment(`${data} ${regra.almoco_fim}`) : null;
+        // Verifica se é hoje para bloquear passado
+        const agora = moment();
+        const ehHoje = agora.format('YYYY-MM-DD') === dataRef;
+        const minutosAgora = agora.hours() * 60 + agora.minutes();
 
-        while (cursor.clone().add(duracao, 'minutes').isSameOrBefore(fimDia)) {
-            const inicioSlot = cursor.clone();
-            const fimSlot = cursor.clone().add(duracao, 'minutes');
-            let ocupado = false;
+        // Loop principal: Percorre o dia em intervalos
+        while (cursor + duracao <= fechamento) {
+            const slotInicio = cursor;
+            const slotFim = cursor + duracao;
+            let disponivel = true;
 
-            // Bloqueio de Almoço
-            if (almocoInicio && almocoFim) {
-                // Se o serviço começa DENTRO do almoço ou termina DENTRO do almoço
+            // a. Bloqueia Passado
+            if (ehHoje && slotInicio <= minutosAgora) disponivel = false;
+
+            // b. Bloqueia Almoço (Se configurado)
+            if (disponivel && almocoIni && almocoFim) {
+                // Se o slot toca no intervalo de almoço
                 if (
-                    (inicioSlot.isSameOrAfter(almocoInicio) && inicioSlot.isBefore(almocoFim)) ||
-                    (fimSlot.isAfter(almocoInicio) && fimSlot.isSameOrBefore(almocoFim))
+                    (slotInicio >= almocoIni && slotInicio < almocoFim) || // Começa no almoço
+                    (slotFim > almocoIni && slotFim <= almocoFim) ||       // Termina no almoço
+                    (slotInicio <= almocoIni && slotFim >= almocoFim)      // Engloba o almoço
                 ) {
-                    ocupado = true;
+                    disponivel = false;
                 }
             }
 
-            // Bloqueio de Agendamentos
-            if (!ocupado) {
-                for (const ag of agendamentos) {
-                    const agInicio = moment(ag.data_hora_inicio);
-                    const agFim = moment(ag.data_hora_fim);
-                    if (inicioSlot.isBefore(agFim) && fimSlot.isAfter(agInicio)) {
-                        ocupado = true;
+            // c. Bloqueia Agendamentos Existentes
+            if (disponivel) {
+                for (const oc of ocupacoes) {
+                    // Se sobrepõe
+                    if (slotInicio < oc.fim && slotFim > oc.inicio) {
+                        disponivel = false;
                         break;
                     }
                 }
             }
 
-            // Bloqueio de Passado
-            if (inicioSlot.isBefore(moment())) ocupado = true;
+            if (disponivel) {
+                const h = Math.floor(slotInicio / 60).toString().padStart(2, '0');
+                const m = (slotInicio % 60).toString().padStart(2, '0');
+                slots.push(`${h}:${m}`);
+            }
 
-            if (!ocupado) slots.push(inicioSlot.format('HH:mm'));
-            cursor.add(30, 'minutes');
+            // Pula: Se quiser intervalos fixos (30min) ou dinâmicos (tamanho do serviço)
+            cursor += 30; // Grade fixa de 30 em 30 min
         }
 
         res.json(slots);
 
-    } catch (e) { res.status(500).json({ erro: "Erro ao calcular disponibilidade." }); }
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ erro: "Erro ao calcular disponibilidade." });
+    }
 };

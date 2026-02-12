@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import moment from 'moment';
 import 'moment/locale/pt-br';
+// Ícones Profissionais
 import {
     Calendar, Users, Settings, Scissors, Plus, Trash2, Edit2, LogOut,
-    Check, X, Clock, DollarSign, User, AlertCircle, Save, Coffee
+    Check, Clock, User, Save, Coffee, Briefcase, ChevronRight
 } from 'lucide-react';
 
 moment.locale('pt-br');
@@ -20,15 +21,10 @@ const Dashboard = ({ usuario, empresa }) => {
     const [equipe, setEquipe] = useState([]);
     const [slots, setSlots] = useState([]);
 
-    // Horários (Inicializa com padrão para não ficar vazio na tela)
+    // Horários (Inicializa para não piscar tela branca)
     const [horarios, setHorarios] = useState(
         Array.from({ length: 7 }, (_, i) => ({
-            dia_semana: i,
-            abertura: '09:00',
-            fechamento: '18:00',
-            almoco_inicio: '12:00',
-            almoco_fim: '13:00',
-            ativo: i !== 0 // Domingo fechado por padrão
+            dia_semana: i, abertura: '09:00', fechamento: '18:00', almoco_inicio: '', almoco_fim: '', ativo: i !== 0
         }))
     );
 
@@ -38,53 +34,40 @@ const Dashboard = ({ usuario, empresa }) => {
     const [svcForm, setSvcForm] = useState({ nome: '', descricao: '', preco: '', duracao_minutos: '' });
     const [editId, setEditId] = useState(null);
 
-    // --- CARREGAMENTO DE DADOS (INDIVIDUAL E ROBUSTO) ---
-    const carregarTudo = useCallback(async () => {
+    // --- CARREGAMENTO OTIMIZADO ---
+    const carregarDados = useCallback(async () => {
         setLoading(true);
-
-        // 1. Carregar Serviços
         try {
-            const res = await api.get('/servicos');
-            setServicos(res.data);
-        } catch (e) { console.error("Erro serviços:", e); }
+            // Paraleliza requisições para performance
+            const [resServicos, resAgenda] = await Promise.all([
+                api.get('/servicos'),
+                api.get(usuario.role === 'dono' ? '/agendamentos/empresa' : '/agendamentos/meus')
+            ]);
+            setServicos(resServicos.data);
+            setAgenda(resAgenda.data);
 
-        // 2. Carregar Agenda
-        try {
-            const rota = usuario.role === 'dono' ? '/agendamentos/empresa' : '/agendamentos/meus';
-            const res = await api.get(rota);
-            setAgenda(res.data);
-        } catch (e) { console.error("Erro agenda:", e); }
+            if (usuario.role === 'dono') {
+                const resEquipe = await api.get('/equipe');
+                setEquipe(resEquipe.data);
 
-        // 3. Dados exclusivos do Dono
-        if (usuario.role === 'dono') {
-            try {
-                const res = await api.get('/equipe');
-                setEquipe(res.data);
-            } catch (e) { console.error("Erro equipe:", e); }
-
-            try {
-                const res = await api.get('/config/horarios');
-                if (res.data.length > 0) {
-                    // Mescla o que veio do banco com o padrão local (garante que os 7 dias existam)
+                const resHorarios = await api.get('/config/horarios');
+                if (resHorarios.data.length > 0) {
                     setHorarios(prev => prev.map(p => {
-                        const doBanco = res.data.find(b => b.dia_semana === p.dia_semana);
-                        return doBanco ? { ...p, ...doBanco } : p;
+                        const banco = resHorarios.data.find(b => b.dia_semana === p.dia_semana);
+                        return banco ? { ...p, ...banco } : p;
                     }));
                 }
-            } catch (e) { console.error("Erro horários:", e); }
-        } else {
-            // Cliente carrega equipe para poder agendar
-            try {
-                const res = await api.get('/equipe');
-                setEquipe(res.data);
-            } catch (e) { }
-        }
+            } else {
+                const resEquipe = await api.get('/equipe');
+                setEquipe(resEquipe.data);
+            }
+        } catch (e) { console.error("Erro carregamento:", e); }
         setLoading(false);
     }, [usuario.role]);
 
-    useEffect(() => { carregarTudo(); }, [carregarTudo]);
+    useEffect(() => { carregarDados(); }, [carregarDados]);
 
-    // Busca Slots Dinamicamente
+    // Slots Dinâmicos (Só chama se tiver dados)
     useEffect(() => {
         const { data, servicoId, profissionalId } = novoAgendamento;
         if (data && servicoId && profissionalId) {
@@ -94,9 +77,9 @@ const Dashboard = ({ usuario, empresa }) => {
         } else setSlots([]);
     }, [novoAgendamento.data, novoAgendamento.servicoId, novoAgendamento.profissionalId]);
 
+    // --- AÇÕES ---
 
-    // --- FUNÇÕES DE AÇÃO ---
-
+    // Agendar
     const handleAgendar = async (e) => {
         e.preventDefault();
         try {
@@ -107,351 +90,289 @@ const Dashboard = ({ usuario, empresa }) => {
                 dataHoraInicio: dataHoraInicio,
                 nomeClienteAvulso: novoAgendamento.nome
             });
-            alert("Agendamento realizado com sucesso!");
+            alert("Agendamento confirmado!");
             setNovoAgendamento({ nome: '', servicoId: '', profissionalId: '', data: '', hora: '' });
             setSlots([]);
-            carregarTudo();
+            carregarDados();
         } catch (e) { alert("Erro: " + (e.response?.data?.erro || "Falha ao agendar")); }
     };
 
+    // Serviços (Salvar/Editar)
     const handleService = async (e) => {
         e.preventDefault();
         try {
-            const payload = {
-                ...svcForm,
-                preco: parseFloat(svcForm.preco) || 0,
-                duracao_minutos: parseInt(svcForm.duracao_minutos) || 30
-            };
-
+            const payload = { ...svcForm, preco: parseFloat(svcForm.preco), duracao_minutos: parseInt(svcForm.duracao_minutos) };
             if (editId) await api.put(`/servicos/${editId}`, payload);
             else await api.post('/servicos', payload);
 
-            // Força atualização local imediata para feedback visual
-            setSvcForm({ nome: '', descricao: '', preco: '', duracao_minutos: '' });
-            setEditId(null);
-            carregarTudo(); // Recarrega do backend para confirmar
+            setSvcForm({ nome: '', descricao: '', preco: '', duracao_minutos: '' }); setEditId(null);
+            carregarDados();
             alert("Serviço salvo!");
-        } catch (e) {
-            console.error(e);
-            alert("Erro ao salvar serviço.");
-        }
+        } catch (e) { alert("Erro ao salvar serviço."); }
     };
 
-    const deleteService = async (id) => {
-        if (!window.confirm("Tem certeza que deseja excluir?")) return;
-        try { await api.delete(`/servicos/${id}`); carregarTudo(); } catch (e) { alert("Erro ao excluir."); }
-    };
+    const deleteService = async (id) => { if (window.confirm("Excluir?")) { await api.delete(`/servicos/${id}`); carregarDados(); } };
 
+    // Equipe
     const addMembro = async (e) => {
         e.preventDefault();
         try {
             await api.post('/equipe', novoMembro);
             setNovoMembro({ nome: '', email: '', senha: '', role: 'profissional' });
-            carregarTudo();
+            carregarDados();
             alert("Membro adicionado!");
-        } catch (e) { alert(e.response?.data?.erro || "Erro ao adicionar membro."); }
+        } catch (e) { alert(e.response?.data?.erro || "Erro ao adicionar."); }
     };
 
-    const removeMembro = async (id) => {
-        if (!window.confirm("Remover este membro?")) return;
-        try { await api.delete(`/equipe/${id}`); carregarTudo(); } catch (e) { alert("Erro ao remover."); }
-    };
+    const removeMembro = async (id) => { if (window.confirm("Remover?")) { await api.delete(`/equipe/${id}`); carregarDados(); } };
 
+    // Horários
     const salvarHorarios = async () => {
         try {
-            // Garante envio limpo
-            const payload = horarios.map(h => ({
-                dia_semana: parseInt(h.dia_semana),
-                abertura: h.abertura,
-                fechamento: h.fechamento,
-                almoco_inicio: h.almoco_inicio,
-                almoco_fim: h.almoco_fim,
-                ativo: h.ativo
-            }));
+            const payload = horarios.map(h => ({ ...h, dia_semana: parseInt(h.dia_semana) }));
             await api.post('/config/horarios', payload);
             alert("Configurações salvas!");
-        } catch (e) { alert("Erro ao salvar horários."); }
+        } catch (e) { alert("Erro ao salvar."); }
     };
 
-    const updateHorario = (index, campo, valor) => {
+    const updateHorario = (i, field, val) => {
         const novos = [...horarios];
-        novos[index][campo] = valor;
+        novos[i][field] = val;
         setHorarios(novos);
     };
 
-    // --- RENDERIZAÇÃO ---
+    // --- INTERFACE (JSX) ---
     return (
-        <div className="layout-container">
-            {/* SIDEBAR */}
+        <div className="layout">
+            {/* SIDEBAR / BOTTOM BAR */}
             <aside className="sidebar">
-                <div style={{ marginBottom: 40, display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {empresa.logo_url && <img src={empresa.logo_url} alt="Logo" style={{ width: 32, height: 32, borderRadius: 8 }} />}
+                <div className="logo-desktop" style={{ marginBottom: 40, display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {empresa.logo_url && <img src={empresa.logo_url} alt="Logo" style={{ width: 36, height: 36, borderRadius: 8 }} />}
                     <h2 style={{ fontSize: '1.2rem', margin: 0, fontWeight: 700 }}>{empresa.nome}</h2>
                 </div>
 
-                <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    <button className={`nav-item ${aba === 'agenda' ? 'active' : ''}`} onClick={() => setAba('agenda')}>
-                        <Calendar size={18} /> Agenda
+                <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <button className={`nav-btn ${aba === 'agenda' ? 'active' : ''}`} onClick={() => setAba('agenda')}>
+                        <Calendar size={20} /> <span>Agenda</span>
                     </button>
                     {usuario.role === 'dono' && (
                         <>
-                            <button className={`nav-item ${aba === 'servicos' ? 'active' : ''}`} onClick={() => setAba('servicos')}>
-                                <Scissors size={18} /> Serviços
+                            <button className={`nav-btn ${aba === 'servicos' ? 'active' : ''}`} onClick={() => setAba('servicos')}>
+                                <Scissors size={20} /> <span>Serviços</span>
                             </button>
-                            <button className={`nav-item ${aba === 'equipe' ? 'active' : ''}`} onClick={() => setAba('equipe')}>
-                                <Users size={18} /> Equipe
+                            <button className={`nav-btn ${aba === 'equipe' ? 'active' : ''}`} onClick={() => setAba('equipe')}>
+                                <Users size={20} /> <span>Equipe</span>
                             </button>
-                            <button className={`nav-item ${aba === 'config' ? 'active' : ''}`} onClick={() => setAba('config')}>
-                                <Settings size={18} /> Configurações
+                            <button className={`nav-btn ${aba === 'config' ? 'active' : ''}`} onClick={() => setAba('config')}>
+                                <Settings size={20} /> <span>Config</span>
                             </button>
                         </>
                     )}
                 </nav>
 
-                <button className="nav-item" style={{ marginTop: 'auto', color: '#ef4444' }} onClick={() => { localStorage.removeItem('marcou_token'); window.location.reload(); }}>
-                    <LogOut size={18} /> Sair
+                <button className="nav-btn logout-btn" style={{ marginTop: 'auto', color: '#ef4444' }} onClick={() => { localStorage.removeItem('marcou_token'); window.location.reload(); }}>
+                    <LogOut size={20} /> <span>Sair</span>
                 </button>
             </aside>
 
-            {/* CONTEÚDO */}
-            <main className="main-content">
-                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+            {/* CONTEÚDO PRINCIPAL */}
+            <main className="main-area">
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
                     <div>
-                        <h1 style={{ margin: 0, fontSize: '1.8rem' }}>
+                        <h1 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 700 }}>
                             {aba === 'agenda' && 'Agenda'}
-                            {aba === 'servicos' && 'Catálogo de Serviços'}
+                            {aba === 'servicos' && 'Serviços'}
                             {aba === 'equipe' && 'Profissionais'}
-                            {aba === 'config' && 'Horários & Regras'}
+                            {aba === 'config' && 'Configurações'}
                         </h1>
-                        <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.7 }}>Gerencie seu negócio com inteligência</p>
+                        <p style={{ margin: 0, color: '#64748b' }}>Gerencie seu negócio</p>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: 600 }}>{usuario.nome}</div>
-                            <div style={{ fontSize: '0.8rem', opacity: 0.6 }}>{usuario.email}</div>
-                        </div>
-                        <div style={{ width: 40, height: 40, background: '#000', borderRadius: '50%', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 40, height: 40, background: '#0f172a', borderRadius: '50%', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                             {usuario.nome.charAt(0)}
                         </div>
                     </div>
                 </header>
 
-                {/* ABA: AGENDA */}
-                {aba === 'agenda' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 30 }}>
-                        <div className="card">
-                            <h3>Próximos Agendamentos</h3>
-                            {agenda.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-                                    <Calendar size={40} style={{ marginBottom: 10, opacity: 0.5 }} />
-                                    <p>Nenhum agendamento encontrado.</p>
-                                </div>
-                            ) : (
-                                <div>
-                                    {agenda.map(ag => (
-                                        <div key={ag.id} className="list-row">
-                                            <div style={{ display: 'flex', gap: 15, alignItems: 'center' }}>
-                                                <div style={{ background: '#f1f5f9', padding: '10px', borderRadius: 8, textAlign: 'center', minWidth: 60 }}>
-                                                    <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{moment(ag.data_hora_inicio).format('DD')}</div>
-                                                    <div style={{ fontSize: '0.8rem', textTransform: 'uppercase' }}>{moment(ag.data_hora_inicio).format('MMM')}</div>
-                                                </div>
-                                                <div>
-                                                    <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{ag.Servico?.nome}</div>
-                                                    <div style={{ fontSize: '0.9rem', color: '#666', display: 'flex', alignItems: 'center', gap: 5 }}>
-                                                        <Clock size={14} /> {moment(ag.data_hora_inicio).format('HH:mm')}
-                                                        <User size={14} style={{ marginLeft: 8 }} /> {ag.Cliente ? ag.Cliente.nome : ag.nome_cliente_avulso}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <span style={{ fontSize: '0.8rem', background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: 20, fontWeight: 600 }}>CONFIRMADO</span>
-                                                {usuario.role === 'dono' && <div style={{ fontSize: '0.8rem', marginTop: 5, color: '#666' }}>{ag.Profissional?.nome}</div>}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                {loading && <div style={{ textAlign: 'center', padding: 20 }}>Carregando...</div>}
 
-                        <div className="card" style={{ height: 'fit-content' }}>
-                            <h3>Novo Agendamento</h3>
-                            <form onSubmit={handleAgendar} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+                {/* ABA: AGENDA */}
+                {aba === 'agenda' && !loading && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
+                        <div className="card">
+                            <h3 style={{ marginBottom: 20 }}>Novo Agendamento</h3>
+                            <form onSubmit={handleAgendar} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                                 {usuario.role === 'dono' && (
                                     <div>
-                                        <label className="label">Cliente Avulso (Balcão)</label>
-                                        <input className="input-field" placeholder="Nome do cliente" value={novoAgendamento.nome} onChange={e => setNovoAgendamento({ ...novoAgendamento, nome: e.target.value })} />
+                                        <label className="label">Cliente Avulso (Opcional)</label>
+                                        <input className="input" placeholder="Nome do cliente" value={novoAgendamento.nome} onChange={e => setNovoAgendamento({ ...novoAgendamento, nome: e.target.value })} />
                                     </div>
                                 )}
-                                <div>
-                                    <label className="label">Serviço</label>
-                                    <select className="input-field" value={novoAgendamento.servicoId} onChange={e => setNovoAgendamento({ ...novoAgendamento, servicoId: e.target.value })} required>
-                                        <option value="">Selecione...</option>
-                                        {servicos.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.duracao_minutos}min)</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="label">Profissional</label>
-                                    <select className="input-field" value={novoAgendamento.profissionalId} onChange={e => setNovoAgendamento({ ...novoAgendamento, profissionalId: e.target.value })} required>
-                                        <option value="">Selecione...</option>
-                                        {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                                    </select>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                    <div>
+                                        <label className="label">Serviço</label>
+                                        <select className="input" value={novoAgendamento.servicoId} onChange={e => setNovoAgendamento({ ...novoAgendamento, servicoId: e.target.value })} required>
+                                            <option value="">Selecione...</option>
+                                            {servicos.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="label">Profissional</label>
+                                        <select className="input" value={novoAgendamento.profissionalId} onChange={e => setNovoAgendamento({ ...novoAgendamento, profissionalId: e.target.value })} required>
+                                            <option value="">Selecione...</option>
+                                            {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="label">Data</label>
-                                    <input type="date" className="input-field" value={novoAgendamento.data} min={moment().format('YYYY-MM-DD')} onChange={e => setNovoAgendamento({ ...novoAgendamento, data: e.target.value })} required />
+                                    <input type="date" className="input" value={novoAgendamento.data} min={moment().format('YYYY-MM-DD')} onChange={e => setNovoAgendamento({ ...novoAgendamento, data: e.target.value })} required />
                                 </div>
 
                                 {slots.length > 0 ? (
                                     <div>
                                         <label className="label">Horários Disponíveis</label>
-                                        <div className="time-grid">
+                                        <div className="slots-grid">
                                             {slots.map(slot => (
-                                                <div key={slot} className={`time-slot ${novoAgendamento.hora === slot ? 'selected' : ''}`} onClick={() => setNovoAgendamento({ ...novoAgendamento, hora: slot })}>
+                                                <div key={slot} className={`slot ${novoAgendamento.hora === slot ? 'selected' : ''}`} onClick={() => setNovoAgendamento({ ...novoAgendamento, hora: slot })}>
                                                     {slot}
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
-                                ) : (
-                                    novoAgendamento.data && <div style={{ fontSize: '0.9rem', color: '#666', fontStyle: 'italic', textAlign: 'center', padding: 10 }}>Nenhum horário disponível ou dia fechado.</div>
+                                ) : novoAgendamento.data && (
+                                    <div style={{ color: '#64748b', fontStyle: 'italic', padding: 10, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>
+                                        Nenhum horário disponível nesta data.
+                                    </div>
                                 )}
 
-                                <button type="submit" className="btn btn-primary" disabled={!novoAgendamento.hora} style={{ marginTop: 10 }}>
-                                    <Check size={18} /> Confirmar
-                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={!novoAgendamento.hora} style={{ marginTop: 10 }}>Confirmar Agendamento</button>
                             </form>
+                        </div>
+
+                        <div className="card">
+                            <h3 style={{ marginBottom: 20 }}>Próximos Clientes</h3>
+                            {agenda.length === 0 ? <p style={{ color: '#94a3b8' }}>Nenhum agendamento futuro.</p> : (
+                                <div>
+                                    {agenda.map(ag => (
+                                        <div key={ag.id} className="list-item">
+                                            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                                                <div style={{ background: '#f1f5f9', padding: '10px 14px', borderRadius: 10, textAlign: 'center' }}>
+                                                    <div style={{ fontWeight: '700', fontSize: '1.1rem' }}>{moment(ag.data_hora_inicio).format('DD')}</div>
+                                                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>{moment(ag.data_hora_inicio).format('MMM')}</div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontWeight: 600 }}>{ag.Servico?.nome}</div>
+                                                    <div style={{ fontSize: '0.9rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                                        <Clock size={14} /> {moment(ag.data_hora_inicio).format('HH:mm')}
+                                                        <User size={14} style={{ marginLeft: 8 }} /> {ag.Cliente ? ag.Cliente.nome : ag.nome_cliente_avulso}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <span style={{ fontSize: '0.75rem', background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: 20, fontWeight: 700 }}>CONFIRMADO</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
 
                 {/* ABA: SERVIÇOS */}
                 {aba === 'servicos' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: 30 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
                         <div className="card" style={{ height: 'fit-content' }}>
-                            <h3>{editId ? 'Editar Serviço' : 'Adicionar Serviço'}</h3>
-                            <form onSubmit={handleService} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-                                <div><label className="label">Nome</label><input className="input-field" value={svcForm.nome} onChange={e => setSvcForm({ ...svcForm, nome: e.target.value })} required placeholder="Ex: Corte Cabelo" /></div>
-                                <div><label className="label">Descrição</label><input className="input-field" value={svcForm.descricao} onChange={e => setSvcForm({ ...svcForm, descricao: e.target.value })} placeholder="Detalhes..." /></div>
-                                <div style={{ display: 'flex', gap: 10 }}>
-                                    <div style={{ flex: 1 }}><label className="label">Preço (R$)</label><input className="input-field" type="number" step="0.01" value={svcForm.preco} onChange={e => setSvcForm({ ...svcForm, preco: e.target.value })} required /></div>
-                                    <div style={{ flex: 1 }}><label className="label">Minutos</label><input className="input-field" type="number" value={svcForm.duracao_minutos} onChange={e => setSvcForm({ ...svcForm, duracao_minutos: e.target.value })} required /></div>
+                            <h3>{editId ? 'Editar Serviço' : 'Novo Serviço'}</h3>
+                            <form onSubmit={handleService} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                <div><label className="label">Nome</label><input className="input" value={svcForm.nome} onChange={e => setSvcForm({ ...svcForm, nome: e.target.value })} required placeholder="Ex: Corte Cabelo" /></div>
+                                <div><label className="label">Descrição</label><input className="input" value={svcForm.descricao} onChange={e => setSvcForm({ ...svcForm, descricao: e.target.value })} placeholder="Detalhes..." /></div>
+                                <div style={{ display: 'flex', gap: 16 }}>
+                                    <div style={{ flex: 1 }}><label className="label">Preço (R$)</label><input className="input" type="number" step="0.01" value={svcForm.preco} onChange={e => setSvcForm({ ...svcForm, preco: e.target.value })} required /></div>
+                                    <div style={{ flex: 1 }}><label className="label">Minutos</label><input className="input" type="number" value={svcForm.duracao_minutos} onChange={e => setSvcForm({ ...svcForm, duracao_minutos: e.target.value })} required /></div>
                                 </div>
                                 <button type="submit" className="btn btn-primary"><Save size={18} /> Salvar</button>
-                                {editId && <button type="button" className="btn btn-secondary" onClick={() => { setEditId(null); setSvcForm({ nome: '', descricao: '', preco: '', duracao_minutos: '' }) }}>Cancelar</button>}
+                                {editId && <button type="button" className="btn btn-ghost" onClick={() => { setEditId(null); setSvcForm({ nome: '', descricao: '', preco: '', duracao_minutos: '' }) }}>Cancelar</button>}
                             </form>
                         </div>
-
                         <div className="card">
-                            <h3>Lista de Serviços</h3>
-                            {servicos.length === 0 ? <p style={{ color: '#999' }}>Nenhum serviço cadastrado.</p> : (
-                                <div>
-                                    {servicos.map(s => (
-                                        <div key={s.id} className="list-row">
-                                            <div>
-                                                <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{s.nome}</div>
-                                                <div style={{ fontSize: '0.9rem', color: '#666' }}>{s.descricao}</div>
-                                                <div style={{ fontWeight: 500, marginTop: 4 }}>R$ {s.preco} • {s.duracao_minutos} min</div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: 5 }}>
-                                                <button onClick={() => { setEditId(s.id); setSvcForm(s) }} className="btn-icon"><Edit2 size={18} /></button>
-                                                <button onClick={() => deleteService(s.id)} className="btn-icon" style={{ color: '#ef4444' }}><Trash2 size={18} /></button>
-                                            </div>
-                                        </div>
-                                    ))}
+                            <h3>Catálogo</h3>
+                            {servicos.map(s => (
+                                <div key={s.id} className="list-item">
+                                    <div>
+                                        <div style={{ fontWeight: 600 }}>{s.nome}</div>
+                                        <div style={{ fontSize: '0.9rem', color: '#64748b' }}>{s.descricao}</div>
+                                        <div style={{ fontWeight: 600, marginTop: 4, color: '#0f172a' }}>R$ {s.preco} • {s.duracao_minutos} min</div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button onClick={() => { setEditId(s.id); setSvcForm(s) }} className="btn-icon"><Edit2 size={18} /></button>
+                                        <button onClick={() => deleteService(s.id)} className="btn-icon" style={{ color: '#ef4444' }}><Trash2 size={18} /></button>
+                                    </div>
                                 </div>
-                            )}
+                            ))}
                         </div>
                     </div>
                 )}
 
                 {/* ABA: EQUIPE */}
                 {aba === 'equipe' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: 30 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
                         <div className="card" style={{ height: 'fit-content' }}>
-                            <h3>Novo Profissional</h3>
-                            <form onSubmit={addMembro} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-                                <div><label className="label">Nome</label><input className="input-field" value={novoMembro.nome} onChange={e => setNovoMembro({ ...novoMembro, nome: e.target.value })} required /></div>
-                                <div><label className="label">Email</label><input className="input-field" type="email" value={novoMembro.email} onChange={e => setNovoMembro({ ...novoMembro, email: e.target.value })} required /></div>
-                                <div><label className="label">Senha</label><input className="input-field" type="password" value={novoMembro.senha} onChange={e => setNovoMembro({ ...novoMembro, senha: e.target.value })} required /></div>
-                                <div>
-                                    <label className="label">Permissão</label>
-                                    <select className="input-field" value={novoMembro.role} onChange={e => setNovoMembro({ ...novoMembro, role: e.target.value })}>
-                                        <option value="profissional">Profissional (Apenas Agenda)</option>
-                                        <option value="dono">Administrador (Total)</option>
-                                    </select>
-                                </div>
-                                <button type="submit" className="btn btn-primary"><Plus size={18} /> Cadastrar</button>
+                            <h3>Adicionar Membro</h3>
+                            <form onSubmit={addMembro} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                <input className="input" placeholder="Nome" value={novoMembro.nome} onChange={e => setNovoMembro({ ...novoMembro, nome: e.target.value })} required />
+                                <input className="input" placeholder="Email" value={novoMembro.email} onChange={e => setNovoMembro({ ...novoMembro, email: e.target.value })} required />
+                                <input className="input" placeholder="Senha" type="password" value={novoMembro.senha} onChange={e => setNovoMembro({ ...novoMembro, senha: e.target.value })} required />
+                                <select className="input" value={novoMembro.role} onChange={e => setNovoMembro({ ...novoMembro, role: e.target.value })}>
+                                    <option value="profissional">Profissional</option>
+                                    <option value="dono">Administrador</option>
+                                </select>
+                                <button className="btn btn-primary">Adicionar</button>
                             </form>
                         </div>
                         <div className="card">
-                            <h3>Equipe Cadastrada</h3>
-                            {equipe.length === 0 ? <p>Nenhum membro encontrado.</p> : (
-                                <div>
-                                    {equipe.map(m => (
-                                        <div key={m.id} className="list-row">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                                <div style={{ width: 40, height: 40, background: '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{m.nome.charAt(0)}</div>
-                                                <div>
-                                                    <div style={{ fontWeight: 600 }}>{m.nome}</div>
-                                                    <div style={{ fontSize: '0.85rem', color: '#666' }}>{m.email}</div>
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
-                                                <span style={{ fontSize: '0.75rem', background: '#e2e8f0', padding: '4px 8px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 600 }}>{m.role}</span>
-                                                {m.id !== usuario.id && <button onClick={() => removeMembro(m.id)} className="btn-icon" style={{ color: '#ef4444' }}><Trash2 size={18} /></button>}
-                                            </div>
-                                        </div>
-                                    ))}
+                            <h3>Profissionais</h3>
+                            {equipe.map(m => (
+                                <div key={m.id} className="list-item">
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <div style={{ width: 36, height: 36, background: '#e2e8f0', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{m.nome.charAt(0)}</div>
+                                        <div><div style={{ fontWeight: 600 }}>{m.nome}</div><div style={{ fontSize: '0.8rem', color: '#64748b' }}>{m.email}</div></div>
+                                    </div>
+                                    {m.id !== usuario.id && <button onClick={() => removeMembro(m.id)} className="btn-icon" style={{ color: '#ef4444' }}><Trash2 size={18} /></button>}
                                 </div>
-                            )}
+                            ))}
                         </div>
                     </div>
                 )}
 
-                {/* ABA: CONFIGURAÇÕES (HORÁRIOS & ALMOÇO) */}
+                {/* ABA: CONFIGURAÇÕES */}
                 {aba === 'config' && (
                     <div className="card">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                            <h3>Horários de Funcionamento & Almoço</h3>
-                            <button onClick={salvarHorarios} className="btn btn-primary"><Save size={18} /> Salvar Alterações</button>
+                            <h3>Horários de Funcionamento</h3>
+                            <button onClick={salvarHorarios} className="btn btn-primary"><Save size={18} /> Salvar Tudo</button>
                         </div>
-
-                        <div style={{ display: 'grid', gap: 0 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '100px 60px 1fr 1fr', gap: 10, padding: '10px 0', borderBottom: '2px solid #eee', fontWeight: 'bold', color: '#666', fontSize: '0.8rem' }}>
-                                <div>DIA</div>
-                                <div>STATUS</div>
-                                <div>EXPEDIENTE (Início - Fim)</div>
-                                <div>ALMOÇO (Início - Fim)</div>
-                            </div>
-
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                             {horarios.map((h, i) => (
-                                <div key={h.dia_semana} style={{ display: 'grid', gridTemplateColumns: '100px 60px 1fr 1fr', gap: 10, alignItems: 'center', padding: '15px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                <div key={h.dia_semana} style={{ display: 'grid', gridTemplateColumns: '100px 50px 1fr', gap: 10, alignItems: 'center', padding: '16px', background: i % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                     <div style={{ fontWeight: 600 }}>{moment().day(h.dia_semana).format('dddd')}</div>
-
-                                    <label className="switch">
-                                        <input type="checkbox" checked={h.ativo} onChange={e => updateHorario(i, 'ativo', e.target.checked)} />
-                                        <span className="slider"></span>
-                                    </label>
+                                    <label className="switch"><input type="checkbox" checked={h.ativo} onChange={e => updateHorario(i, 'ativo', e.target.checked)} /><span className="slider"></span></label>
 
                                     {h.ativo ? (
-                                        <>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                                <input type="time" className="input-field" style={{ padding: '5px' }} value={h.abertura} onChange={e => updateHorario(i, 'abertura', e.target.value)} />
-                                                <span style={{ color: '#999' }}>-</span>
-                                                <input type="time" className="input-field" style={{ padding: '5px' }} value={h.fechamento} onChange={e => updateHorario(i, 'fechamento', e.target.value)} />
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <Clock size={16} color="#64748b" />
+                                                <input type="time" className="input" style={{ padding: '6px', width: 90 }} value={h.abertura} onChange={e => updateHorario(i, 'abertura', e.target.value)} />
+                                                <span>até</span>
+                                                <input type="time" className="input" style={{ padding: '6px', width: 90 }} value={h.fechamento} onChange={e => updateHorario(i, 'fechamento', e.target.value)} />
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                                <Coffee size={16} color="#c0a062" />
-                                                <input type="time" className="input-field" style={{ padding: '5px' }} value={h.almoco_inicio || "12:00"} onChange={e => updateHorario(i, 'almoco_inicio', e.target.value)} />
-                                                <span style={{ color: '#999' }}>-</span>
-                                                <input type="time" className="input-field" style={{ padding: '5px' }} value={h.almoco_fim || "13:00"} onChange={e => updateHorario(i, 'almoco_fim', e.target.value)} />
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <Coffee size={16} color="#f59e0b" />
+                                                <input type="time" className="input" style={{ padding: '6px', width: 90 }} value={h.almoco_inicio} onChange={e => updateHorario(i, 'almoco_inicio', e.target.value)} />
+                                                <span>até</span>
+                                                <input type="time" className="input" style={{ padding: '6px', width: 90 }} value={h.almoco_fim} onChange={e => updateHorario(i, 'almoco_fim', e.target.value)} />
                                             </div>
-                                        </>
-                                    ) : (
-                                        <div style={{ gridColumn: '3 / -1', color: '#ef4444', fontWeight: 500, fontStyle: 'italic', paddingLeft: 10 }}>
-                                            Fechado
                                         </div>
-                                    )}
+                                    ) : <span style={{ color: '#ef4444', fontWeight: 500, fontStyle: 'italic' }}>Fechado</span>}
                                 </div>
                             ))}
                         </div>
