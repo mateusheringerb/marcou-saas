@@ -6,96 +6,7 @@ const Empresa = require('../models/Empresa');
 const { Op } = require('sequelize');
 const moment = require('moment');
 
-// --- SLOTS (CORRIGIDO: MULTI SERVIÇOS + FUSO BRASIL) ---
-exports.buscarDisponibilidade = async (req, res) => {
-    try {
-        // Agora recebe uma string de IDs: "1,2,5"
-        const { data, servicosIds, profissionalId } = req.query;
-        const empresaId = req.usuario.empresaId;
-
-        // 1. Calcular Duração Total
-        if (!servicosIds) return res.status(400).json({ erro: "Nenhum serviço selecionado." });
-        const idsArray = servicosIds.split(',');
-
-        const servicos = await Servico.findAll({ where: { id: idsArray } });
-        if (servicos.length === 0) return res.status(404).json({ erro: "Serviços não encontrados." });
-
-        const duracaoTotal = servicos.reduce((acc, s) => acc + s.duracao_minutos, 0);
-
-        // 2. Data e Dia da Semana (Forçando formato correto)
-        const dataRef = moment(data).format('YYYY-MM-DD');
-        const diaSemana = moment(dataRef).day();
-
-        // 3. Buscar Regras do Dia
-        const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
-        if (!regra || !regra.ativo) return res.json([]); // Loja fechada
-
-        const toMin = (t) => t ? parseInt(t.split(':')[0]) * 60 + parseInt(t.split(':')[1]) : null;
-        const abertura = toMin(regra.abertura);
-        const fechamento = toMin(regra.fechamento);
-        const almocoIni = toMin(regra.almoco_inicio);
-        const almocoFim = toMin(regra.almoco_fim);
-
-        // 4. Buscar Ocupações (Agendamentos Existentes)
-        const agendamentos = await Agendamento.findAll({
-            where: {
-                empresaId, profissionalId, status: { [Op.not]: 'cancelado' },
-                data_hora_inicio: { [Op.between]: [moment(dataRef).startOf('day').toDate(), moment(dataRef).endOf('day').toDate()] }
-            }
-        });
-
-        const ocupacoes = agendamentos.map(a => {
-            const i = moment(a.data_hora_inicio); const f = moment(a.data_hora_fim);
-            return { ini: i.hours() * 60 + i.minutes(), fim: f.hours() * 60 + f.minutes() };
-        });
-
-        // 5. Cálculo dos Slots
-        let slots = [];
-        let cursor = abertura;
-
-        // FUSO HORÁRIO BRASIL (-3): Garante que "agora" é a hora no Brasil, não em Londres (Servidor)
-        const agoraBR = moment().utcOffset(-3);
-        const ehHoje = agoraBR.format('YYYY-MM-DD') === dataRef;
-        const minutosAgora = agoraBR.hours() * 60 + agoraBR.minutes();
-
-        while (cursor + duracaoTotal <= fechamento) {
-            const ini = cursor; const fim = cursor + duracaoTotal;
-            let livre = true;
-
-            // Bloqueio de Passado (Com buffer de 15min)
-            if (ehHoje && ini < (minutosAgora + 15)) livre = false;
-
-            // Bloqueio de Almoço
-            if (livre && almocoIni !== null && almocoFim !== null) {
-                // Se o serviço começa, termina ou passa por dentro do almoço
-                if ((ini >= almocoIni && ini < almocoFim) || (fim > almocoIni && fim <= almocoFim) || (ini <= almocoIni && fim >= almocoFim)) {
-                    livre = false;
-                }
-            }
-
-            // Bloqueio de Agendamentos (Colisões)
-            if (livre) {
-                for (const o of ocupacoes) {
-                    if (ini < o.fim && fim > o.ini) { livre = false; break; }
-                }
-            }
-
-            if (livre) {
-                const h = Math.floor(ini / 60).toString().padStart(2, '0');
-                const m = (ini % 60).toString().padStart(2, '0');
-                slots.push(`${h}:${m}`);
-            }
-            // Grade de 30 em 30 minutos
-            cursor += 30;
-        }
-        res.json(slots);
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ erro: "Erro no cálculo de horários." });
-    }
-};
-
-// --- CRUD BÁSICO ---
+// --- EQUIPE ---
 exports.listarEquipe = async (req, res) => {
     try {
         const equipe = await Usuario.findAll({
@@ -103,7 +14,7 @@ exports.listarEquipe = async (req, res) => {
             attributes: ['id', 'nome', 'email', 'role', 'foto_url', 'atende_clientes']
         });
         res.json(equipe);
-    } catch (e) { res.status(500).json({ erro: "Erro ao listar." }); }
+    } catch (e) { res.status(500).json({ erro: "Erro ao listar equipe." }); }
 };
 
 exports.adicionarMembro = async (req, res) => {
@@ -129,18 +40,23 @@ exports.removerMembro = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro." }); }
 };
 
+// --- PERFIL ---
 exports.atualizarPerfil = async (req, res) => {
     try {
-        const { nome, email, foto_url, atende_clientes } = req.body;
+        const { nome, email, foto_url, atende_clientes, senha } = req.body;
         const u = await Usuario.findByPk(req.usuario.id);
+
         if (nome) u.nome = nome;
         if (email) u.email = email;
         if (foto_url) u.foto_url = foto_url;
-        if (atende_clientes !== undefined) u.atende_clientes = atende_clientes; // Toggle
+        if (senha && senha.length > 0) u.senha = senha;
+
+        // CORREÇÃO: Toggle booleano funcionando corretamente
+        if (atende_clientes !== undefined) u.atende_clientes = atende_clientes;
 
         await u.save();
-        res.json({ ok: true });
-    } catch (e) { res.status(500).json({ erro: "Erro." }); }
+        res.json({ ok: true, usuario: u }); // Retorna usuário atualizado
+    } catch (e) { res.status(500).json({ erro: "Erro ao atualizar." }); }
 };
 
 exports.atualizarEmpresa = async (req, res) => {
@@ -152,6 +68,7 @@ exports.atualizarEmpresa = async (req, res) => {
     } catch (e) { res.status(500).json({ erro: "Erro." }); }
 };
 
+// --- HORÁRIOS ---
 exports.salvarHorarios = async (req, res) => {
     try {
         const horarios = req.body;
@@ -170,4 +87,97 @@ exports.listarHorarios = async (req, res) => {
         const h = await HorarioFuncionamento.findAll({ where: { empresaId: req.usuario.empresaId }, order: [['dia_semana', 'ASC']] });
         res.json(h);
     } catch (e) { res.status(500).json({ erro: "Erro." }); }
+};
+
+// --- SLOTS (CORRIGIDO PARA MULTI SERVIÇOS E FUSO BRASIL) ---
+exports.buscarDisponibilidade = async (req, res) => {
+    try {
+        // Recebe IDs separados por vírgula: "1,2"
+        const { data, servicosIds, profissionalId } = req.query;
+        const empresaId = req.usuario.empresaId;
+
+        if (!servicosIds) return res.status(400).json({ erro: "Selecione serviços." });
+
+        const idsArray = servicosIds.split(',');
+        const servicos = await Servico.findAll({ where: { id: idsArray } });
+
+        if (servicos.length === 0) return res.status(404).json({ erro: "Serviços não encontrados." });
+
+        // Soma durações
+        const duracaoTotal = servicos.reduce((acc, s) => acc + s.duracao_minutos, 0);
+
+        // Data de referência
+        const dataRef = moment(data).format('YYYY-MM-DD');
+        const diaSemana = moment(dataRef).day();
+
+        // Regra do dia
+        const regra = await HorarioFuncionamento.findOne({ where: { empresaId, dia_semana: diaSemana } });
+        if (!regra || !regra.ativo) return res.json([]);
+
+        // Helpers de conversão
+        const toMin = (t) => t ? parseInt(t.split(':')[0]) * 60 + parseInt(t.split(':')[1]) : null;
+        const aber = toMin(regra.abertura);
+        const fech = toMin(regra.fechamento);
+        const almI = toMin(regra.almoco_inicio);
+        const almF = toMin(regra.almoco_fim);
+
+        // Busca ocupações
+        const agendamentos = await Agendamento.findAll({
+            where: {
+                empresaId, profissionalId, status: { [Op.not]: 'cancelado' },
+                data_hora_inicio: { [Op.between]: [moment(dataRef).startOf('day').toDate(), moment(dataRef).endOf('day').toDate()] }
+            }
+        });
+
+        const ocupacoes = agendamentos.map(a => {
+            const i = moment(a.data_hora_inicio); const f = moment(a.data_hora_fim);
+            return { ini: i.hours() * 60 + i.minutes(), fim: f.hours() * 60 + f.minutes() };
+        });
+
+        let slots = [];
+        let cursor = aber;
+
+        // FUSO HORÁRIO: Define "Agora" como Brasil (UTC-3)
+        // Isso impede que o servidor em UTC bloqueie horários válidos no Brasil
+        const agoraBR = moment().utcOffset(-3);
+        const ehHoje = agoraBR.format('YYYY-MM-DD') === dataRef;
+        const minAgora = agoraBR.hours() * 60 + agoraBR.minutes();
+
+        // Loop de Slots
+        while (cursor + duracaoTotal <= fech) {
+            const ini = cursor; const fim = cursor + duracaoTotal;
+            let livre = true;
+
+            // Bloqueio de Passado (Buffer de 15min)
+            if (ehHoje && ini < (minAgora + 15)) livre = false;
+
+            // Bloqueio de Almoço
+            if (livre && almI !== null && almF !== null) {
+                // Se toca no almoço de qualquer forma
+                if ((ini >= almI && ini < almF) || (fim > almI && fim <= almF) || (ini <= almI && fim >= almF)) {
+                    livre = false;
+                }
+            }
+
+            // Bloqueio de Agendamentos
+            if (livre) {
+                for (const o of ocupacoes) {
+                    // Colisão de horários
+                    if (ini < o.fim && fim > o.ini) { livre = false; break; }
+                }
+            }
+
+            if (livre) {
+                const h = Math.floor(ini / 60).toString().padStart(2, '0');
+                const m = (ini % 60).toString().padStart(2, '0');
+                slots.push(`${h}:${m}`);
+            }
+            // Avança de 30 em 30 min (Grid padrão)
+            cursor += 30;
+        }
+        res.json(slots);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ erro: "Erro ao calcular slots." });
+    }
 };

@@ -9,7 +9,7 @@ import {
 
 moment.locale('pt-br');
 
-// --- HELPER: Contraste de Cor ---
+// FUNÇÃO DE CONTRASTE: Define cor do texto baseada no fundo
 const getContrastYIQ = (hexcolor) => {
     if (!hexcolor) return '#000';
     hexcolor = hexcolor.replace("#", "");
@@ -33,7 +33,7 @@ const ConfirmationModal = ({ onClose }) => (
     </div>
 );
 
-// --- COMPONENTE SUPER ADMIN ---
+// --- BACKOFFICE (SUPER ADMIN) ---
 const SuperAdminView = () => {
     const [view, setView] = useState('list');
     const [empresas, setEmpresas] = useState([]);
@@ -55,12 +55,18 @@ const SuperAdminView = () => {
 
     const createCompany = async (e) => {
         e.preventDefault();
-        try { await api.post('/admin/empresas', form); alert("Sucesso!"); setForm({ nome: '', slug: '', email_dono: '', senha_dono: '', plano: 'pro' }); loadEmpresas(); } catch (e) { alert(e.response?.data?.erro); }
+        try { await api.post('/admin/empresas', form); alert("Empresa Criada!"); setForm({ nome: '', slug: '', email_dono: '', senha_dono: '', plano: 'pro' }); loadEmpresas(); } catch (e) { alert(e.response?.data?.erro); }
     };
 
     const saveCompany = async (e) => {
         e.preventDefault();
         try { await api.put(`/admin/empresas/${selectedEmpresa.id}`, editForm); alert("Atualizado!"); openDetails(selectedEmpresa.id); } catch (e) { alert("Erro."); }
+    };
+
+    const toggleStatus = async () => {
+        if (!selectedEmpresa) return;
+        const ns = selectedEmpresa.status_assinatura === 'ativa' ? 'bloqueada' : 'ativa';
+        if (window.confirm(`Mudar para ${ns}?`)) { await api.put(`/admin/empresas/${selectedEmpresa.id}/status`, { status: ns }); openDetails(selectedEmpresa.id); }
     };
 
     if (view === 'details' && selectedEmpresa) {
@@ -72,7 +78,7 @@ const SuperAdminView = () => {
                         <div style={{ width: 50, height: 50, borderRadius: 10, background: selectedEmpresa.cor_primaria, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: 20 }}>{selectedEmpresa.nome.charAt(0)}</div>
                         <div><h1 style={{ fontSize: '1.3rem', margin: 0 }}>{selectedEmpresa.nome}</h1><div style={{ color: '#64748b' }}>/{selectedEmpresa.slug}</div></div>
                     </div>
-                    <span style={{ padding: '5px 10px', borderRadius: 20, background: selectedEmpresa.status_assinatura === 'ativa' ? '#dcfce7' : '#fee2e2', color: selectedEmpresa.status_assinatura === 'ativa' ? '#166534' : '#991b1b' }}>{selectedEmpresa.status_assinatura}</span>
+                    <button onClick={toggleStatus} className="btn" style={{ background: selectedEmpresa.status_assinatura === 'ativa' ? '#fee2e2' : '#dcfce7', color: selectedEmpresa.status_assinatura === 'ativa' ? '#991b1b' : '#166534' }}>{selectedEmpresa.status_assinatura === 'ativa' ? 'Bloquear' : 'Ativar'}</button>
                 </header>
                 <div className="grid-2-col" style={{ gridTemplateColumns: '2fr 1fr' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -82,9 +88,9 @@ const SuperAdminView = () => {
                     <div className="card" style={{ height: 'fit-content' }}>
                         <h3>Gerenciar</h3>
                         <form onSubmit={saveCompany} style={{ display: 'grid', gap: 15 }}>
-                            <input className="input" value={editForm.nome} onChange={e => setEditForm({ ...editForm, nome: e.target.value })} />
-                            <input className="input" value={editForm.slug} onChange={e => setEditForm({ ...editForm, slug: e.target.value })} />
-                            <select className="input" value={editForm.status_assinatura} onChange={e => setEditForm({ ...editForm, status_assinatura: e.target.value })}><option value="ativa">Ativa</option><option value="bloqueada">Bloqueada</option></select>
+                            <input className="input" value={editForm.nome} onChange={e => setEditForm({ ...editForm, nome: e.target.value })} placeholder="Nome" />
+                            <input className="input" value={editForm.slug} onChange={e => setEditForm({ ...editForm, slug: e.target.value })} placeholder="Slug" />
+                            <input className="input" type="color" style={{ height: 40 }} value={editForm.cor_primaria} onChange={e => setEditForm({ ...editForm, cor_primaria: e.target.value })} />
                             <button className="btn btn-primary">Salvar</button>
                         </form>
                     </div>
@@ -103,7 +109,7 @@ const SuperAdminView = () => {
                         <input className="input" placeholder="Nome" value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} required />
                         <input className="input" placeholder="Slug" value={form.slug} onChange={e => setForm({ ...form, slug: e.target.value })} required />
                         <input className="input" placeholder="Email Dono" value={form.email_dono} onChange={e => setForm({ ...form, email_dono: e.target.value })} required />
-                        <input className="input" placeholder="Senha" value={form.senha_dono} onChange={e => setForm({ ...form, senha_dono: e.target.value })} required />
+                        <input className="input" placeholder="Senha Dono" value={form.senha_dono} onChange={e => setForm({ ...form, senha_dono: e.target.value })} required />
                         <button className="btn btn-primary">Criar</button>
                     </form>
                 </div>
@@ -116,7 +122,7 @@ const SuperAdminView = () => {
     );
 };
 
-// --- DASHBOARD PRINCIPAL ---
+// --- DASHBOARD NORMAL ---
 const Dashboard = ({ usuario, empresa }) => {
     if (usuario.role === 'admin_geral') {
         return (
@@ -131,12 +137,13 @@ const Dashboard = ({ usuario, empresa }) => {
     const [loadingData, setLoadingData] = useState(true);
     const [showSuccess, setShowSuccess] = useState(false);
 
+    // Dados
     const [agenda, setAgenda] = useState([]);
     const [servicos, setServicos] = useState([]);
     const [equipe, setEquipe] = useState([]);
     const [slots, setSlots] = useState([]);
 
-    // Agendamento Multi-Select
+    // Multi-Select
     const [selectedServices, setSelectedServices] = useState([]);
     const [profissionalId, setProfissionalId] = useState('');
     const [dataAgendamento, setDataAgendamento] = useState('');
@@ -147,7 +154,6 @@ const Dashboard = ({ usuario, empresa }) => {
     const [empresaConfig, setEmpresaConfig] = useState({ ...empresa });
     const fileRef = useRef(null);
     const logoRef = useRef(null);
-
     const [horarios, setHorarios] = useState(Array.from({ length: 7 }, (_, i) => ({ dia_semana: i, abertura: '09:00', fechamento: '18:00', almoco_inicio: '', almoco_fim: '', ativo: i !== 0 })));
     const [novoMembro, setNovoMembro] = useState({ nome: '', email: '', senha: '', role: 'profissional', atende_clientes: true });
     const [svcForm, setSvcForm] = useState({ nome: '', descricao: '', preco: '', duracao_minutos: '' });
@@ -177,7 +183,7 @@ const Dashboard = ({ usuario, empresa }) => {
 
     useEffect(() => { carregarTudo(); }, [carregarTudo]);
 
-    // Busca Slots (Envia IDs múltiplos)
+    // Busca Slots (Multi Serviços)
     useEffect(() => {
         if (dataAgendamento && selectedServices.length > 0 && profissionalId) {
             setSlots([]);
@@ -216,13 +222,13 @@ const Dashboard = ({ usuario, empresa }) => {
         reader.readAsDataURL(file);
     };
 
+    // SEM RELOAD - Atualiza estado local
     const salvarPerfil = async (e) => {
         e.preventDefault();
         try {
             await api.put('/perfil', perfil);
             if (usuario.role === 'dono') await api.put('/config/empresa', empresaConfig);
             alert("Salvo!");
-            // Não recarrega, apenas mantém o estado
         } catch (e) { alert("Erro ao salvar."); }
     };
 
@@ -233,7 +239,6 @@ const Dashboard = ({ usuario, empresa }) => {
     const salvarHorarios = async () => { try { const pl = horarios.map(h => ({ ...h, dia_semana: parseInt(h.dia_semana) })); await api.post('/config/horarios', pl); alert("Salvo!"); } catch (e) { alert("Erro"); } };
     const updateHorario = (i, f, v) => { const n = [...horarios]; n[i][f] = v; setHorarios(n); };
 
-    // Estilo Dinâmico
     const headerStyle = {
         background: empresaConfig.cor_primaria,
         color: headerTextColor,
@@ -252,7 +257,7 @@ const Dashboard = ({ usuario, empresa }) => {
 
             <aside className="sidebar">
                 <div className="desktop-only" style={{ marginBottom: 40, textAlign: 'center' }}>
-                    {empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: 60, height: 60, borderRadius: 12, objectFit: 'cover', marginBottom: 10 }} /> : <div style={{ width: 60, height: 60, background: empresaConfig.cor_primaria, borderRadius: 12, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: 24 }}>{empresa.nome.charAt(0)}</div>}
+                    {empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: 60, height: 60, borderRadius: 12, objectFit: 'cover', marginBottom: 10 }} /> : <div style={{ width: 60, height: 60, background: empresa.cor_primaria, borderRadius: 12, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: 24 }}>{empresa.nome.charAt(0)}</div>}
                     <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>{empresa.nome}</h2>
                 </div>
                 <nav style={{ flex: 1, display: 'flex', flexDirection: window.innerWidth <= 768 ? 'row' : 'column', gap: 6 }}>
@@ -296,7 +301,7 @@ const Dashboard = ({ usuario, empresa }) => {
                                                 <div><label className="label">Data</label><input type="date" className="input" value={dataAgendamento} min={moment().format('YYYY-MM-DD')} onChange={e => setDataAgendamento(e.target.value)} required /></div>
                                             </div>
 
-                                            {slots.length > 0 ? <div><label className="label">Horários</label><div className="slots-grid">{slots.map(slot => (<div key={slot} className={`slot ${horaSelecionada === slot ? 'selected' : ''}`} onClick={() => setHoraSelecionada(slot)}>{slot}</div>))}</div></div> : (dataAgendamento && selectedServices.length > 0) && <div style={{ textAlign: 'center', color: '#999', padding: 10 }}>Sem horários livres.</div>}
+                                            {slots.length > 0 ? <div><label className="label">Horários</label><div className="slots-grid">{slots.map(slot => (<div key={slot} className={`slot ${horaSelecionada === slot ? 'selected' : ''}`} onClick={() => setHoraSelecionada(slot)}>{slot}</div>))}</div></div> : (dataAgendamento && selectedServices.length > 0 && profissionalId) && <div style={{ textAlign: 'center', color: '#999', padding: 10 }}>Sem horários livres.</div>}
 
                                             {selectedServices.length > 0 && <div style={{ background: '#f3f4f6', padding: 15, borderRadius: 12 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><strong>Total:</strong> <strong>R$ {getTotalPrice().toFixed(2)}</strong></div><div style={{ fontSize: '0.8rem', color: '#666', marginTop: 5 }}><AlertCircle size={14} /> Pagar no local.</div></div>}
                                             <button type="submit" className="btn btn-cta" disabled={!horaSelecionada}>Confirmar</button>
@@ -305,7 +310,7 @@ const Dashboard = ({ usuario, empresa }) => {
                                     <div className="card"><h3>{usuario.role === 'dono' ? 'Agenda' : 'Meus Horários'}</h3>{agenda.length === 0 ? <p style={{ color: '#999' }}>Vazio.</p> : <div>{agenda.map(ag => (<div key={ag.id} className="list-item"><div style={{ display: 'flex', gap: 12, alignItems: 'center' }}><div style={{ background: '#eff6ff', padding: '10px 14px', borderRadius: 10, textAlign: 'center', color: 'var(--primary)' }}><div style={{ fontWeight: '800', fontSize: '1.1rem' }}>{moment(ag.data_hora_inicio).format('DD')}</div></div><div><div style={{ fontWeight: 700 }}>{ag.observacoes || ag.Servico?.nome}</div><div style={{ fontSize: '0.85rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}><Clock size={14} /> {moment(ag.data_hora_inicio).format('HH:mm')} {usuario.role === 'dono' && <><User size={14} /> {ag.Cliente ? ag.Cliente.nome : ag.nome_cliente_avulso}</>}</div></div></div></div>))}</div>}</div>
                                 </div>
                             )}
-                            {aba === 'perfil' && (<div className="card" style={{ maxWidth: 600, margin: '0 auto' }}><div className="avatar-area" onClick={() => fileRef.current.click()}>{perfil.foto_url ? <img src={perfil.foto_url} className="avatar-img" /> : <div className="avatar-img" style={{ background: '#eee' }}>{perfil.nome.charAt(0)}</div>}<div className="avatar-plus"><Camera size={16} /></div></div><input type="file" ref={fileRef} hidden onChange={(e) => handleUpload(e, 'perfil')} /><form onSubmit={salvarPerfil} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}><input className="input" value={perfil.nome} onChange={e => setPerfil({ ...perfil, nome: e.target.value })} /><input className="input" value={perfil.email} disabled style={{ background: '#eee' }} /><div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', padding: 15, borderRadius: 12 }}><div onClick={() => setPerfil({ ...perfil, atende_clientes: !perfil.atende_clientes })} style={{ cursor: 'pointer' }}>{perfil.atende_clientes ? <ToggleRight size={32} color="#10b981" /> : <ToggleLeft size={32} color="#999" />}</div><div><strong>Atender Clientes</strong><span style={{ display: 'block', fontSize: '0.8rem', color: '#666' }}>Aparecer na lista de profissionais.</span></div></div>{usuario.role === 'dono' && (<div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #eee' }}><h3>Empresa</h3><div style={{ display: 'flex', gap: 15, alignItems: 'center', marginBottom: 15 }}><div style={{ width: 60, height: 60, borderRadius: 10, background: '#eee', overflow: 'hidden', cursor: 'pointer' }} onClick={() => logoRef.current.click()}>{empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Upload size={20} style={{ margin: '20px auto' }} />}</div><input type="file" ref={logoRef} hidden onChange={(e) => handleUpload(e, 'logo')} /><input className="input" value={empresaConfig.nome} onChange={e => setEmpresaConfig({ ...empresaConfig, nome: e.target.value })} /></div><input type="color" className="input" style={{ height: 45 }} value={empresaConfig.cor_primaria} onChange={e => setEmpresaConfig({ ...empresaConfig, cor_primaria: e.target.value })} /></div>)}<button className="btn btn-primary">Salvar</button></form></div>)}
+                            {aba === 'perfil' && (<div className="card" style={{ maxWidth: 600, margin: '0 auto' }}><div className="avatar-area" onClick={() => fileRef.current.click()}>{perfil.foto_url ? <img src={perfil.foto_url} className="avatar-img" /> : <div className="avatar-img" style={{ background: '#eee' }}>{perfil.nome.charAt(0)}</div>}<div className="avatar-plus"><Camera size={16} /></div></div><input type="file" ref={fileRef} hidden onChange={(e) => handleUpload(e, 'perfil')} /><form onSubmit={salvarPerfil} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}><input className="input" value={perfil.nome} onChange={e => setPerfil({ ...perfil, nome: e.target.value })} /><input className="input" value={perfil.email} disabled style={{ background: '#eee' }} /><div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', padding: 15, borderRadius: 12 }}><div onClick={() => setPerfil({ ...perfil, atende_clientes: !perfil.atende_clientes })} style={{ cursor: 'pointer' }}>{perfil.atende_clientes ? <ToggleRight size={32} color="#10b981" /> : <ToggleLeft size={32} color="#999" />}</div><div><strong>Atender Clientes</strong><span style={{ display: 'block', fontSize: '0.8rem', color: '#666' }}>Aparecer na lista de profissionais.</span></div></div>{usuario.role === 'dono' && (<div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #eee' }}><h3>Empresa</h3><div style={{ display: 'flex', gap: 15, alignItems: 'center', marginBottom: 15 }}><div style={{ width: 60, height: 60, borderRadius: 10, background: '#eee', overflow: 'hidden', cursor: 'pointer' }} onClick={() => logoRef.current.click()}>{empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Upload size={20} style={{ margin: '20px auto' }} />}</div><input type="file" ref={logoRef} hidden onChange={(e) => handleUpload(e, 'logo')} /><input className="input" value={empresaConfig.nome} onChange={e => setEmpresaConfig({ ...empresaConfig, nome: e.target.value })} /></div><input type="color" className="input" style={{ height: 45 }} value={empresaConfig.cor_primaria} onChange={e => setEmpresaConfig({ ...empresaConfig, cor_primaria: e.target.value })} /></div>)}<button className="btn btn-primary" style={{ marginTop: 10 }}>Salvar Alterações</button></form></div>)}
                             {aba === 'servicos' && (<div className="grid-2-col"><div className="card" style={{ height: 'fit-content' }}><h3>{editId ? 'Editar' : 'Novo'}</h3><form onSubmit={handleService} style={{ display: 'grid', gap: 15 }}><input className="input" placeholder="Nome" value={svcForm.nome} onChange={e => setSvcForm({ ...svcForm, nome: e.target.value })} required /><input className="input" placeholder="Descrição" value={svcForm.descricao} onChange={e => setSvcForm({ ...svcForm, descricao: e.target.value })} /><div style={{ display: 'flex', gap: 10 }}><input className="input" type="number" placeholder="Preço" value={svcForm.preco} onChange={e => setSvcForm({ ...svcForm, preco: e.target.value })} required /><input className="input" type="number" placeholder="Minutos" value={svcForm.duracao_minutos} onChange={e => setSvcForm({ ...svcForm, duracao_minutos: e.target.value })} required /></div><button className="btn btn-primary">Salvar</button></form></div><div className="card"><h3>Lista</h3>{servicos.map(s => (<div key={s.id} className="list-item"><div><strong>{s.nome}</strong><br /><small>R${s.preco} • {s.duracao_minutos}m</small></div><div><button onClick={() => { setEditId(s.id); setSvcForm(s) }} className="btn btn-icon"><Edit2 size={16} /></button><button onClick={() => deleteService(s.id)} className="btn btn-icon" style={{ color: 'red' }}><Trash2 size={16} /></button></div></div>))}</div></div>)}
                             {aba === 'equipe' && (<div className="grid-2-col"><div className="card" style={{ height: 'fit-content' }}><h3>Novo Membro</h3><form onSubmit={addMembro} style={{ display: 'grid', gap: 15 }}><input className="input" placeholder="Nome" value={novoMembro.nome} onChange={e => setNovoMembro({ ...novoMembro, nome: e.target.value })} required /><input className="input" placeholder="Email" value={novoMembro.email} onChange={e => setNovoMembro({ ...novoMembro, email: e.target.value })} required /><input className="input" placeholder="Senha" value={novoMembro.senha} onChange={e => setNovoMembro({ ...novoMembro, senha: e.target.value })} required /><select className="input" value={novoMembro.role} onChange={e => setNovoMembro({ ...novoMembro, role: e.target.value })}><option value="profissional">Profissional</option><option value="dono">Admin</option></select><button className="btn btn-primary">Adicionar</button></form></div><div className="card"><h3>Equipe</h3>{equipe.map(m => (<div key={m.id} className="list-item"><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{m.foto_url ? <img src={m.foto_url} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 32, height: 32, background: '#eee', borderRadius: '50%' }}></div>}<strong>{m.nome}</strong></div>{m.id !== usuario.id && <button onClick={() => removeMembro(m.id)} className="btn btn-icon" style={{ color: 'red' }}><Trash2 size={16} /></button>}</div>))}</div></div>)}
                             {aba === 'config' && (<div className="card"><h3>Horários</h3><button onClick={salvarHorarios} className="btn btn-primary" style={{ marginBottom: 15 }}>Salvar</button>{horarios.map((h, i) => (<div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}><div style={{ width: 80, fontWeight: 'bold' }}>{moment().day(h.dia_semana).format('dddd')}</div><input type="checkbox" checked={h.ativo} onChange={e => updateHorario(i, 'ativo', e.target.checked)} />{h.ativo ? <><input type="time" className="input" style={{ width: 90, padding: 5 }} value={h.abertura} onChange={e => updateHorario(i, 'abertura', e.target.value)} /> - <input type="time" className="input" style={{ width: 90, padding: 5 }} value={h.fechamento} onChange={e => updateHorario(i, 'fechamento', e.target.value)} /></> : <span>Fechado</span>}</div>))}</div>)}
