@@ -6,32 +6,35 @@ const database = require('./config/database');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 
-// --- MODELOS ---
+// --- 1. IMPORTAÇÃO DOS MODELOS (LIMPOS) ---
 const Empresa = require('./models/Empresa');
 const Usuario = require('./models/Usuario');
 const Servico = require('./models/Servico');
 const Agendamento = require('./models/Agendamento');
 const HorarioFuncionamento = require('./models/HorarioFuncionamento');
 
-// --- DEFINIÇÃO DE ASSOCIAÇÕES (CRÍTICO: Resolve o erro de "EagerLoadingError") ---
-// Empresa tem muitos...
-Empresa.hasMany(Usuario, { foreignKey: 'empresaId' });
-Empresa.hasMany(Servico, { foreignKey: 'empresaId' });
-Empresa.hasMany(Agendamento, { foreignKey: 'empresaId' });
-Empresa.hasMany(HorarioFuncionamento, { foreignKey: 'empresaId' });
+// --- 2. DEFINIÇÃO CENTRALIZADA DAS RELAÇÕES ---
+// (Isso substitui qualquer código que estava dentro dos models)
 
-// Pertencem a Empresa...
+// Empresa é a dona de tudo
+Empresa.hasMany(Usuario, { foreignKey: 'empresaId' });
 Usuario.belongsTo(Empresa, { foreignKey: 'empresaId' });
+
+Empresa.hasMany(Servico, { foreignKey: 'empresaId' });
 Servico.belongsTo(Empresa, { foreignKey: 'empresaId' });
+
+Empresa.hasMany(Agendamento, { foreignKey: 'empresaId' });
 Agendamento.belongsTo(Empresa, { foreignKey: 'empresaId' });
+
+Empresa.hasMany(HorarioFuncionamento, { foreignKey: 'empresaId' });
 HorarioFuncionamento.belongsTo(Empresa, { foreignKey: 'empresaId' });
 
-// Relacionamentos de Agendamento
+// Agendamento conecta Cliente, Profissional e Serviço
 Agendamento.belongsTo(Usuario, { as: 'Cliente', foreignKey: 'clienteId' });
 Agendamento.belongsTo(Usuario, { as: 'Profissional', foreignKey: 'profissionalId' });
 Agendamento.belongsTo(Servico, { foreignKey: 'servicoId' });
 
-// --- CONTROLADORES ---
+// --- 3. CONFIGURAÇÃO DO APP ---
 const AgendamentoController = require('./controllers/AgendamentoController');
 const ConfigController = require('./controllers/ConfigController');
 const AdminController = require('./controllers/AdminController');
@@ -40,22 +43,9 @@ const subscriptionMiddleware = require('./middlewares/subscriptionMiddleware');
 
 const app = express();
 
-const allowedOrigins = [
-    'http://localhost:3000',
-    'https://marcou.agapeconnect.com.br',
-    'https://marcou-frontend.vercel.app'
-];
-
-app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) return callback(null, true);
-        return callback(null, true);
-    }
-}));
+// Configurações de Segurança e Dados
+app.use(cors({ origin: true })); // Aceita tudo (mais fácil para evitar erros de CORS em dev)
 app.use(helmet());
-
-// LIMITE DE UPLOAD AUMENTADO (50MB para fotos)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -63,9 +53,12 @@ const GOOGLE_CLIENT_ID = "517522819247-g4tut7tgkfshr4ef3ffc3gg5tj2l73rn.apps.goo
 const JWT_SECRET = "Mvhb@628387*";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-// --- ROTAS PÚBLICAS ---
-app.get('/api/ping', (req, res) => res.status(200).json({ status: "online" }));
+// --- 4. ROTAS ---
 
+// Health Check
+app.get('/api/ping', (req, res) => res.json({ status: "online" }));
+
+// Lista Empresas (Público) - Esconde o Admin
 app.get('/api/empresas', async (req, res) => {
     try {
         const empresas = await Empresa.findAll({
@@ -73,9 +66,10 @@ app.get('/api/empresas', async (req, res) => {
             attributes: ['id', 'nome', 'slug', 'logo_url', 'cor_primaria']
         });
         res.json(empresas);
-    } catch (e) { res.status(500).json({ erro: "Erro ao buscar empresas." }); }
+    } catch (e) { res.status(500).json({ erro: "Erro servidor" }); }
 });
 
+// Login Email/Senha
 app.post('/api/login', async (req, res) => {
     try {
         const { email, senha } = req.body;
@@ -87,21 +81,17 @@ app.post('/api/login', async (req, res) => {
 
         const token = jwt.sign({ id: usuario.id, role: usuario.role, empresaId: usuario.empresaId }, JWT_SECRET, { expiresIn: '24h' });
 
-        // ENVIA DADOS COMPLETOS (Incluindo atende_clientes e foto)
         res.json({
             token,
             usuario: {
-                id: usuario.id,
-                nome: usuario.nome,
-                email: usuario.email,
-                role: usuario.role,
-                foto_url: usuario.foto_url,
-                atende_clientes: usuario.atende_clientes
+                id: usuario.id, nome: usuario.nome, email: usuario.email,
+                role: usuario.role, foto_url: usuario.foto_url, atende_clientes: usuario.atende_clientes
             }
         });
     } catch (e) { res.status(500).json({ erro: "Erro interno." }); }
 });
 
+// Login Google
 app.post('/api/login/google', async (req, res) => {
     try {
         const { token, slug } = req.body;
@@ -120,16 +110,14 @@ app.post('/api/login/google', async (req, res) => {
         res.json({
             token: appToken,
             usuario: {
-                id: usuario.id,
-                nome: usuario.nome,
-                role: usuario.role,
-                foto_url: usuario.foto_url,
-                atende_clientes: usuario.atende_clientes
+                id: usuario.id, nome: usuario.nome, role: usuario.role,
+                foto_url: usuario.foto_url, atende_clientes: usuario.atende_clientes
             }
         });
-    } catch (e) { res.status(401).json({ erro: "Falha Google." }); }
+    } catch (e) { res.status(401).json({ erro: "Google falhou." }); }
 });
 
+// Cadastro
 app.post('/api/cadastro', async (req, res) => {
     try {
         const { nome, email, senha, slug } = req.body;
@@ -143,25 +131,26 @@ app.post('/api/cadastro', async (req, res) => {
         const token = jwt.sign({ id: novo.id, role: 'cliente', empresaId: empresa.id }, JWT_SECRET, { expiresIn: '24h' });
 
         res.status(201).json({ token, usuario: { id: novo.id, nome: novo.nome, role: 'cliente' } });
-    } catch (e) { res.status(500).json({ erro: "Erro ao cadastrar." }); }
+    } catch (e) { res.status(500).json({ erro: "Erro cadastro." }); }
 });
 
+// Dados Públicos da Empresa
 app.get('/api/empresa/:slug', async (req, res) => {
     try {
         const emp = await Empresa.findOne({ where: { slug: req.params.slug } });
         if (!emp) return res.status(404).json({ erro: "Não encontrada" });
         res.json({ id: emp.id, nome: emp.nome, cor_primaria: emp.cor_primaria, logo_url: emp.logo_url });
-    } catch (e) { res.status(500).json({ erro: "Erro." }); }
+    } catch (e) { res.status(500).json({ erro: "Erro servidor." }); }
 });
 
-// --- ROTAS DO SUPER ADMIN ---
+// --- ROTAS DO ADMIN MASTER ---
 app.get('/api/admin/empresas', authMiddleware, AdminController.listarTodasEmpresas);
 app.get('/api/admin/empresas/:id', authMiddleware, AdminController.obterDetalhesEmpresa);
 app.post('/api/admin/empresas', authMiddleware, AdminController.criarEmpresa);
 app.put('/api/admin/empresas/:id', authMiddleware, AdminController.atualizarEmpresaAdmin);
 app.put('/api/admin/empresas/:id/status', authMiddleware, AdminController.alterarStatusEmpresa);
 
-// --- ROTAS PRIVADAS ---
+// --- ROTAS DO SISTEMA (LOGADO) ---
 app.get('/api/agendamentos/meus', authMiddleware, AgendamentoController.listarMeusAgendamentos);
 app.get('/api/agendamentos/empresa', authMiddleware, subscriptionMiddleware, AgendamentoController.listarAgendamentosEmpresa);
 app.post('/api/agendar', authMiddleware, subscriptionMiddleware, AgendamentoController.criarAgendamento);
@@ -177,22 +166,21 @@ app.get('/api/disponibilidade', authMiddleware, ConfigController.buscarDisponibi
 app.put('/api/perfil', authMiddleware, ConfigController.atualizarPerfil);
 app.put('/api/config/empresa', authMiddleware, subscriptionMiddleware, ConfigController.atualizarEmpresa);
 
+// CRUD Serviços
 app.get('/api/servicos', authMiddleware, async (req, res) => {
     try {
         const s = await Servico.findAll({ where: { empresaId: req.usuario.empresaId } });
         res.json(s);
-    } catch (e) { res.status(500).json({ erro: "Erro ao buscar serviços." }); }
+    } catch (e) { res.status(500).json({ erro: "Erro" }); }
 });
-
 app.post('/api/servicos', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono' && req.usuario.role !== 'admin_geral') return res.status(403).json({ erro: "Proibido" });
     try {
         const dados = { ...req.body, preco: parseFloat(req.body.preco), duracao_minutos: parseInt(req.body.duracao_minutos), empresaId: req.usuario.empresaId };
         const s = await Servico.create(dados);
         res.json(s);
-    } catch (e) { res.status(500).json({ erro: "Erro ao criar serviço" }); }
+    } catch (e) { res.status(500).json({ erro: "Erro" }); }
 });
-
 app.put('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
     try {
@@ -201,16 +189,17 @@ app.put('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req,
             await s.update({ ...req.body, preco: parseFloat(req.body.preco), duracao_minutos: parseInt(req.body.duracao_minutos) });
             res.json(s);
         } else res.status(404).json({ erro: "Não encontrado" });
-    } catch (e) { res.status(500).json({ erro: "Erro ao atualizar" }); }
+    } catch (e) { res.status(500).json({ erro: "Erro" }); }
 });
-
 app.delete('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
     await Servico.destroy({ where: { id: req.params.id } });
     res.json({ ok: true });
 });
 
+// Inicialização
 const PORT = process.env.PORT || 3001;
+// Force: false mantém os dados. Rode seed.js manualmente se precisar resetar.
 database.sync({ force: false }).then(() => {
     app.listen(PORT, () => console.log(`🚀 API RODANDO NA PORTA ${PORT}`));
 });
