@@ -1,74 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useParams, useNavigate } from 'react-router-dom';
-import api from './services/api';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Cadastro from './pages/Cadastro';
 import Dashboard from './pages/Dashboard';
 import LandingPage from './pages/LandingPage';
-import Footer from './components/Footer';
-
-const AmbienteEmpresa = () => {
-    const { slug } = useParams();
-    const navigate = useNavigate();
-    const [empresa, setEmpresa] = useState(null);
-    const [usuario, setUsuario] = useState(null);
-    const [carregando, setCarregando] = useState(true);
-
-    useEffect(() => {
-        api.get(`/empresa/${slug}`)
-            .then(res => { setEmpresa(res.data); setCarregando(false); })
-            .catch(() => { setCarregando(false); });
-
-        const token = localStorage.getItem('marcou_token') || sessionStorage.getItem('marcou_token');
-    }, [slug]);
-
-    if (carregando) return <div style={{ padding: 20 }}>Carregando...</div>;
-    if (!empresa) return <div style={{ padding: 20, textAlign: 'center' }}>Empresa não encontrada.</div>;
-
-    if (usuario) {
-        return (
-            <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-                <header style={{ background: empresa.cor_primaria, padding: '15px 20px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{empresa.nome}</h1>
-                    <button onClick={() => { localStorage.removeItem('marcou_token'); sessionStorage.removeItem('marcou_token'); setUsuario(null); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '8px 15px', borderRadius: 20, cursor: 'pointer', fontSize: '0.9rem' }}>Sair</button>
-                </header>
-                <main style={{ flex: 1 }}>
-                    <Dashboard usuario={usuario} empresa={empresa} />
-                </main>
-                <Footer />
-            </div>
-        );
-    }
-
-    const isCadastro = window.location.pathname.includes('/cadastro');
-
-    return (
-        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-            <header style={{ background: empresa.cor_primaria, padding: '40px 20px', color: '#fff', textAlign: 'center' }}>
-                <h1 style={{ margin: 0, fontSize: '2rem' }}>{empresa.nome}</h1>
-            </header>
-            <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-                {isCadastro ? (
-                    <Cadastro empresa={empresa} aoLogar={setUsuario} />
-                ) : (
-                    <Login empresa={empresa} aoLogar={setUsuario} />
-                )}
-            </main>
-            <Footer />
-        </div>
-    );
-};
+import api from './services/api';
 
 function App() {
     return (
-        <Router>
+        <BrowserRouter>
             <Routes>
                 <Route path="/" element={<LandingPage />} />
-                <Route path="/:slug" element={<AmbienteEmpresa />} />
-                <Route path="/:slug/login" element={<AmbienteEmpresa />} />
-                <Route path="/:slug/cadastro" element={<AmbienteEmpresa />} />
+                <Route path="/:slug" element={<RotaEmpresa />} />
+                <Route path="/:slug/cadastro" element={<RotaCadastro />} />
             </Routes>
-        </Router>
+        </BrowserRouter>
     );
 }
+
+const RotaEmpresa = () => {
+    const [empresa, setEmpresa] = useState(null);
+    const [usuario, setUsuario] = useState(null);
+    const slug = window.location.pathname.split('/')[1];
+
+    useEffect(() => {
+        api.get(`/empresa/${slug}`).then(res => setEmpresa(res.data)).catch(() => { });
+        const token = localStorage.getItem('marcou_token');
+        if (token) {
+            // Decodifica token ou busca perfil (simplificado aqui, idealmente busca /me)
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            // Em produção real, chame api.get('/perfil') para dados frescos
+            // Aqui usamos o payload para velocidade, mas o Dashboard atualiza depois
+            setUsuario({ ...payload, nome: payload.nome || 'Usuário' });
+        }
+    }, [slug]);
+
+    if (!empresa) return <div style={{ padding: 50, textAlign: 'center' }}>Carregando estabelecimento...</div>;
+
+    const handleLogin = (user) => setUsuario(user);
+
+    return usuario ? <Dashboard usuario={usuario} empresa={empresa} /> : <Login empresa={empresa} aoLogar={handleLogin} />;
+};
+
+const RotaCadastro = () => {
+    const slug = window.location.pathname.split('/')[1];
+    return <Cadastro slug={slug} />;
+};
+
 export default App;

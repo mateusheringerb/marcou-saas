@@ -9,7 +9,6 @@ import {
 
 moment.locale('pt-br');
 
-// FUNÇÃO DE CONTRASTE: Define cor do texto baseada no fundo
 const getContrastYIQ = (hexcolor) => {
     if (!hexcolor) return '#000';
     hexcolor = hexcolor.replace("#", "");
@@ -33,7 +32,6 @@ const ConfirmationModal = ({ onClose }) => (
     </div>
 );
 
-// --- BACKOFFICE (SUPER ADMIN) ---
 const SuperAdminView = () => {
     const [view, setView] = useState('list');
     const [empresas, setEmpresas] = useState([]);
@@ -122,7 +120,6 @@ const SuperAdminView = () => {
     );
 };
 
-// --- DASHBOARD NORMAL ---
 const Dashboard = ({ usuario, empresa }) => {
     if (usuario.role === 'admin_geral') {
         return (
@@ -136,20 +133,15 @@ const Dashboard = ({ usuario, empresa }) => {
     const [aba, setAba] = useState('agenda');
     const [loadingData, setLoadingData] = useState(true);
     const [showSuccess, setShowSuccess] = useState(false);
-
-    // Dados
     const [agenda, setAgenda] = useState([]);
     const [servicos, setServicos] = useState([]);
     const [equipe, setEquipe] = useState([]);
     const [slots, setSlots] = useState([]);
-
-    // Multi-Select
     const [selectedServices, setSelectedServices] = useState([]);
     const [profissionalId, setProfissionalId] = useState('');
     const [dataAgendamento, setDataAgendamento] = useState('');
     const [horaSelecionada, setHoraSelecionada] = useState('');
     const [nomeCliente, setNomeCliente] = useState('');
-
     const [perfil, setPerfil] = useState({ ...usuario });
     const [empresaConfig, setEmpresaConfig] = useState({ ...empresa });
     const fileRef = useRef(null);
@@ -222,7 +214,6 @@ const Dashboard = ({ usuario, empresa }) => {
         reader.readAsDataURL(file);
     };
 
-    // SEM RELOAD - Atualiza estado local
     const salvarPerfil = async (e) => {
         e.preventDefault();
         try {
@@ -257,7 +248,7 @@ const Dashboard = ({ usuario, empresa }) => {
 
             <aside className="sidebar">
                 <div className="desktop-only" style={{ marginBottom: 40, textAlign: 'center' }}>
-                    {empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: 60, height: 60, borderRadius: 12, objectFit: 'cover', marginBottom: 10 }} /> : <div style={{ width: 60, height: 60, background: empresa.cor_primaria, borderRadius: 12, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: 24 }}>{empresa.nome.charAt(0)}</div>}
+                    {empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: 60, height: 60, borderRadius: 12, objectFit: 'cover', marginBottom: 10 }} /> : <div style={{ width: 60, height: 60, background: empresaConfig.cor_primaria, borderRadius: 12, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: 24 }}>{empresa.nome.charAt(0)}</div>}
                     <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>{empresa.nome}</h2>
                 </div>
                 <nav style={{ flex: 1, display: 'flex', flexDirection: window.innerWidth <= 768 ? 'row' : 'column', gap: 6 }}>
@@ -310,7 +301,7 @@ const Dashboard = ({ usuario, empresa }) => {
                                     <div className="card"><h3>{usuario.role === 'dono' ? 'Agenda' : 'Meus Horários'}</h3>{agenda.length === 0 ? <p style={{ color: '#999' }}>Vazio.</p> : <div>{agenda.map(ag => (<div key={ag.id} className="list-item"><div style={{ display: 'flex', gap: 12, alignItems: 'center' }}><div style={{ background: '#eff6ff', padding: '10px 14px', borderRadius: 10, textAlign: 'center', color: 'var(--primary)' }}><div style={{ fontWeight: '800', fontSize: '1.1rem' }}>{moment(ag.data_hora_inicio).format('DD')}</div></div><div><div style={{ fontWeight: 700 }}>{ag.observacoes || ag.Servico?.nome}</div><div style={{ fontSize: '0.85rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}><Clock size={14} /> {moment(ag.data_hora_inicio).format('HH:mm')} {usuario.role === 'dono' && <><User size={14} /> {ag.Cliente ? ag.Cliente.nome : ag.nome_cliente_avulso}</>}</div></div></div></div>))}</div>}</div>
                                 </div>
                             )}
-                            {aba === 'perfil' && (<div className="card" style={{ maxWidth: 600, margin: '0 auto' }}><div className="avatar-area" onClick={() => fileRef.current.click()}>{perfil.foto_url ? <img src={perfil.foto_url} className="avatar-img" /> : <div className="avatar-img" style={{ background: '#eee' }}>{perfil.nome.charAt(0)}</div>}<div className="avatar-plus"><Camera size={16} /></div></div><input type="file" ref={fileRef} hidden onChange={(e) => handleUpload(e, 'perfil')} /><form onSubmit={salvarPerfil} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}><input className="input" value={perfil.nome} onChange={e => setPerfil({ ...perfil, nome: e.target.value })} /><input className="input" value={perfil.email} disabled style={{ background: '#eee' }} /><div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', padding: 15, borderRadius: 12 }}><div onClick={() => setPerfil({ ...perfil, atende_clientes: !perfil.atende_clientes })} style={{ cursor: 'pointer' }}>{perfil.atende_clientes ? <ToggleRight size={32} color="#10b981" /> : <ToggleLeft size={32} color="#999" />}</div><div><strong>Atender Clientes</strong><span style={{ display: 'block', fontSize: '0.8rem', color: '#666' }}>Aparecer na lista de profissionais.</span></div></div>{usuario.role === 'dono' && (<div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #eee' }}><h3>Empresa</h3><div style={{ display: 'flex', gap: 15, alignItems: 'center', marginBottom: 15 }}><div style={{ width: 60, height: 60, borderRadius: 10, background: '#eee', overflow: 'hidden', cursor: 'pointer' }} onClick={() => logoRef.current.click()}>{empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Upload size={20} style={{ margin: '20px auto' }} />}</div><input type="file" ref={logoRef} hidden onChange={(e) => handleUpload(e, 'logo')} /><input className="input" value={empresaConfig.nome} onChange={e => setEmpresaConfig({ ...empresaConfig, nome: e.target.value })} /></div><input type="color" className="input" style={{ height: 45 }} value={empresaConfig.cor_primaria} onChange={e => setEmpresaConfig({ ...empresaConfig, cor_primaria: e.target.value })} /></div>)}<button className="btn btn-primary" style={{ marginTop: 10 }}>Salvar Alterações</button></form></div>)}
+                            {aba === 'perfil' && (<div className="card" style={{ maxWidth: 600, margin: '0 auto' }}><div className="avatar-area" onClick={() => fileRef.current.click()}>{perfil.foto_url ? <img src={perfil.foto_url} className="avatar-img" /> : <div className="avatar-img" style={{ background: '#eee' }}>{perfil.nome.charAt(0)}</div>}<div className="avatar-plus"><Camera size={16} /></div></div><input type="file" ref={fileRef} hidden onChange={(e) => handleUpload(e, 'perfil')} /><form onSubmit={salvarPerfil} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}><input className="input" value={perfil.nome} onChange={e => setPerfil({ ...perfil, nome: e.target.value })} /><input className="input" value={perfil.email} disabled style={{ background: '#eee' }} /><div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', padding: 15, borderRadius: 12 }}><div onClick={() => setPerfil({ ...perfil, atende_clientes: !perfil.atende_clientes })} style={{ cursor: 'pointer' }}>{perfil.atende_clientes ? <ToggleRight size={32} color="#10b981" /> : <ToggleLeft size={32} color="#999" />}</div><div><strong>Atender Clientes</strong><span style={{ display: 'block', fontSize: '0.8rem', color: '#666' }}>Aparecer na lista de profissionais.</span></div></div>{usuario.role === 'dono' && (<div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #eee' }}><h3>Empresa</h3><div style={{ display: 'flex', gap: 15, alignItems: 'center', marginBottom: 15 }}><div style={{ width: 60, height: 60, borderRadius: 10, background: '#eee', overflow: 'hidden', cursor: 'pointer' }} onClick={() => logoRef.current.click()}>{empresaConfig.logo_url ? <img src={empresaConfig.logo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Upload size={20} style={{ margin: '20px auto' }} />}</div><input type="file" ref={logoRef} hidden onChange={(e) => handleUpload(e, 'logo')} /><input className="input" value={empresaConfig.nome} onChange={e => setEmpresaConfig({ ...empresaConfig, nome: e.target.value })} /></div><input type="color" className="input" style={{ height: 45 }} value={empresaConfig.cor_primaria} onChange={e => setEmpresaConfig({ ...empresaConfig, cor_primaria: e.target.value })} /></div>)}<button className="btn btn-primary">Salvar</button></form></div>)}
                             {aba === 'servicos' && (<div className="grid-2-col"><div className="card" style={{ height: 'fit-content' }}><h3>{editId ? 'Editar' : 'Novo'}</h3><form onSubmit={handleService} style={{ display: 'grid', gap: 15 }}><input className="input" placeholder="Nome" value={svcForm.nome} onChange={e => setSvcForm({ ...svcForm, nome: e.target.value })} required /><input className="input" placeholder="Descrição" value={svcForm.descricao} onChange={e => setSvcForm({ ...svcForm, descricao: e.target.value })} /><div style={{ display: 'flex', gap: 10 }}><input className="input" type="number" placeholder="Preço" value={svcForm.preco} onChange={e => setSvcForm({ ...svcForm, preco: e.target.value })} required /><input className="input" type="number" placeholder="Minutos" value={svcForm.duracao_minutos} onChange={e => setSvcForm({ ...svcForm, duracao_minutos: e.target.value })} required /></div><button className="btn btn-primary">Salvar</button></form></div><div className="card"><h3>Lista</h3>{servicos.map(s => (<div key={s.id} className="list-item"><div><strong>{s.nome}</strong><br /><small>R${s.preco} • {s.duracao_minutos}m</small></div><div><button onClick={() => { setEditId(s.id); setSvcForm(s) }} className="btn btn-icon"><Edit2 size={16} /></button><button onClick={() => deleteService(s.id)} className="btn btn-icon" style={{ color: 'red' }}><Trash2 size={16} /></button></div></div>))}</div></div>)}
                             {aba === 'equipe' && (<div className="grid-2-col"><div className="card" style={{ height: 'fit-content' }}><h3>Novo Membro</h3><form onSubmit={addMembro} style={{ display: 'grid', gap: 15 }}><input className="input" placeholder="Nome" value={novoMembro.nome} onChange={e => setNovoMembro({ ...novoMembro, nome: e.target.value })} required /><input className="input" placeholder="Email" value={novoMembro.email} onChange={e => setNovoMembro({ ...novoMembro, email: e.target.value })} required /><input className="input" placeholder="Senha" value={novoMembro.senha} onChange={e => setNovoMembro({ ...novoMembro, senha: e.target.value })} required /><select className="input" value={novoMembro.role} onChange={e => setNovoMembro({ ...novoMembro, role: e.target.value })}><option value="profissional">Profissional</option><option value="dono">Admin</option></select><button className="btn btn-primary">Adicionar</button></form></div><div className="card"><h3>Equipe</h3>{equipe.map(m => (<div key={m.id} className="list-item"><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{m.foto_url ? <img src={m.foto_url} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 32, height: 32, background: '#eee', borderRadius: '50%' }}></div>}<strong>{m.nome}</strong></div>{m.id !== usuario.id && <button onClick={() => removeMembro(m.id)} className="btn btn-icon" style={{ color: 'red' }}><Trash2 size={16} /></button>}</div>))}</div></div>)}
                             {aba === 'config' && (<div className="card"><h3>Horários</h3><button onClick={salvarHorarios} className="btn btn-primary" style={{ marginBottom: 15 }}>Salvar</button>{horarios.map((h, i) => (<div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}><div style={{ width: 80, fontWeight: 'bold' }}>{moment().day(h.dia_semana).format('dddd')}</div><input type="checkbox" checked={h.ativo} onChange={e => updateHorario(i, 'ativo', e.target.checked)} />{h.ativo ? <><input type="time" className="input" style={{ width: 90, padding: 5 }} value={h.abertura} onChange={e => updateHorario(i, 'abertura', e.target.value)} /> - <input type="time" className="input" style={{ width: 90, padding: 5 }} value={h.fechamento} onChange={e => updateHorario(i, 'fechamento', e.target.value)} /></> : <span>Fechado</span>}</div>))}</div>)}
