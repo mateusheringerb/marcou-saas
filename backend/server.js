@@ -6,14 +6,32 @@ const database = require('./config/database');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 
-// Modelos
+// --- MODELOS ---
 const Empresa = require('./models/Empresa');
 const Usuario = require('./models/Usuario');
 const Servico = require('./models/Servico');
 const Agendamento = require('./models/Agendamento');
 const HorarioFuncionamento = require('./models/HorarioFuncionamento');
 
-// Controladores
+// --- DEFINIÇÃO DE ASSOCIAÇÕES (CRÍTICO: Resolve o erro de "EagerLoadingError") ---
+// Empresa tem muitos...
+Empresa.hasMany(Usuario, { foreignKey: 'empresaId' });
+Empresa.hasMany(Servico, { foreignKey: 'empresaId' });
+Empresa.hasMany(Agendamento, { foreignKey: 'empresaId' });
+Empresa.hasMany(HorarioFuncionamento, { foreignKey: 'empresaId' });
+
+// Pertencem a Empresa...
+Usuario.belongsTo(Empresa, { foreignKey: 'empresaId' });
+Servico.belongsTo(Empresa, { foreignKey: 'empresaId' });
+Agendamento.belongsTo(Empresa, { foreignKey: 'empresaId' });
+HorarioFuncionamento.belongsTo(Empresa, { foreignKey: 'empresaId' });
+
+// Relacionamentos de Agendamento
+Agendamento.belongsTo(Usuario, { as: 'Cliente', foreignKey: 'clienteId' });
+Agendamento.belongsTo(Usuario, { as: 'Profissional', foreignKey: 'profissionalId' });
+Agendamento.belongsTo(Servico, { foreignKey: 'servicoId' });
+
+// --- CONTROLADORES ---
 const AgendamentoController = require('./controllers/AgendamentoController');
 const ConfigController = require('./controllers/ConfigController');
 const AdminController = require('./controllers/AdminController');
@@ -36,6 +54,8 @@ app.use(cors({
     }
 }));
 app.use(helmet());
+
+// LIMITE DE UPLOAD AUMENTADO (50MB para fotos)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -47,20 +67,39 @@ const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 app.get('/api/ping', (req, res) => res.status(200).json({ status: "online" }));
 
 app.get('/api/empresas', async (req, res) => {
-    const empresas = await Empresa.findAll({
-        where: { slug: { [require('sequelize').Op.ne]: 'admin' } },
-        attributes: ['id', 'nome', 'slug', 'logo_url', 'cor_primaria']
-    });
-    res.json(empresas);
+    try {
+        const empresas = await Empresa.findAll({
+            where: { slug: { [require('sequelize').Op.ne]: 'admin' } },
+            attributes: ['id', 'nome', 'slug', 'logo_url', 'cor_primaria']
+        });
+        res.json(empresas);
+    } catch (e) { res.status(500).json({ erro: "Erro ao buscar empresas." }); }
 });
 
 app.post('/api/login', async (req, res) => {
-    const { email, senha } = req.body;
-    const usuario = await Usuario.findOne({ where: { email } });
-    if (!usuario || usuario.senha !== senha) return res.status(401).json({ erro: "Credenciais inválidas." });
+    try {
+        const { email, senha } = req.body;
+        const usuario = await Usuario.findOne({ where: { email } });
 
-    const token = jwt.sign({ id: usuario.id, role: usuario.role, empresaId: usuario.empresaId }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ token, usuario: { id: usuario.id, nome: usuario.nome, role: usuario.role, foto_url: usuario.foto_url } });
+        if (!usuario || usuario.senha !== senha) {
+            return res.status(401).json({ erro: "Credenciais inválidas." });
+        }
+
+        const token = jwt.sign({ id: usuario.id, role: usuario.role, empresaId: usuario.empresaId }, JWT_SECRET, { expiresIn: '24h' });
+
+        // ENVIA DADOS COMPLETOS (Incluindo atende_clientes e foto)
+        res.json({
+            token,
+            usuario: {
+                id: usuario.id,
+                nome: usuario.nome,
+                email: usuario.email,
+                role: usuario.role,
+                foto_url: usuario.foto_url,
+                atende_clientes: usuario.atende_clientes
+            }
+        });
+    } catch (e) { res.status(500).json({ erro: "Erro interno." }); }
 });
 
 app.post('/api/login/google', async (req, res) => {
@@ -77,8 +116,18 @@ app.post('/api/login/google', async (req, res) => {
             usuario = await Usuario.create({ nome: name, email, senha: "", foto_url: picture, role: 'cliente', empresaId: empresa.id });
         }
         const appToken = jwt.sign({ id: usuario.id, role: usuario.role, empresaId: usuario.empresaId }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token: appToken, usuario: { id: usuario.id, nome: usuario.nome, role: usuario.role, foto_url: usuario.foto_url } });
-    } catch (e) { res.status(401).json({ erro: "Google Auth falhou." }); }
+
+        res.json({
+            token: appToken,
+            usuario: {
+                id: usuario.id,
+                nome: usuario.nome,
+                role: usuario.role,
+                foto_url: usuario.foto_url,
+                atende_clientes: usuario.atende_clientes
+            }
+        });
+    } catch (e) { res.status(401).json({ erro: "Falha Google." }); }
 });
 
 app.post('/api/cadastro', async (req, res) => {
@@ -86,26 +135,31 @@ app.post('/api/cadastro', async (req, res) => {
         const { nome, email, senha, slug } = req.body;
         const empresa = await Empresa.findOne({ where: { slug } });
         if (!empresa) return res.status(404).json({ erro: "Empresa não encontrada." });
+
         const existe = await Usuario.findOne({ where: { email } });
-        if (existe) return res.status(400).json({ erro: "Email já existe." });
+        if (existe) return res.status(400).json({ erro: "Email já cadastrado." });
 
         const novo = await Usuario.create({ nome, email, senha, role: 'cliente', empresaId: empresa.id });
         const token = jwt.sign({ id: novo.id, role: 'cliente', empresaId: empresa.id }, JWT_SECRET, { expiresIn: '24h' });
+
         res.status(201).json({ token, usuario: { id: novo.id, nome: novo.nome, role: 'cliente' } });
     } catch (e) { res.status(500).json({ erro: "Erro ao cadastrar." }); }
 });
 
 app.get('/api/empresa/:slug', async (req, res) => {
-    const emp = await Empresa.findOne({ where: { slug: req.params.slug } });
-    if (!emp) return res.status(404).json({ erro: "Não encontrada" });
-    res.json({ id: emp.id, nome: emp.nome, cor_primaria: emp.cor_primaria, logo_url: emp.logo_url });
+    try {
+        const emp = await Empresa.findOne({ where: { slug: req.params.slug } });
+        if (!emp) return res.status(404).json({ erro: "Não encontrada" });
+        res.json({ id: emp.id, nome: emp.nome, cor_primaria: emp.cor_primaria, logo_url: emp.logo_url });
+    } catch (e) { res.status(500).json({ erro: "Erro." }); }
 });
 
-// --- ROTAS SUPER ADMIN (NOVAS) ---
+// --- ROTAS DO SUPER ADMIN ---
 app.get('/api/admin/empresas', authMiddleware, AdminController.listarTodasEmpresas);
-app.get('/api/admin/empresas/:id', authMiddleware, AdminController.obterDetalhesEmpresa); // Rota Raio-X
+app.get('/api/admin/empresas/:id', authMiddleware, AdminController.obterDetalhesEmpresa);
 app.post('/api/admin/empresas', authMiddleware, AdminController.criarEmpresa);
-app.put('/api/admin/empresas/:id', authMiddleware, AdminController.atualizarEmpresaAdmin); // Edição Geral
+app.put('/api/admin/empresas/:id', authMiddleware, AdminController.atualizarEmpresaAdmin);
+app.put('/api/admin/empresas/:id/status', authMiddleware, AdminController.alterarStatusEmpresa);
 
 // --- ROTAS PRIVADAS ---
 app.get('/api/agendamentos/meus', authMiddleware, AgendamentoController.listarMeusAgendamentos);
@@ -124,9 +178,12 @@ app.put('/api/perfil', authMiddleware, ConfigController.atualizarPerfil);
 app.put('/api/config/empresa', authMiddleware, subscriptionMiddleware, ConfigController.atualizarEmpresa);
 
 app.get('/api/servicos', authMiddleware, async (req, res) => {
-    const s = await Servico.findAll({ where: { empresaId: req.usuario.empresaId } });
-    res.json(s);
+    try {
+        const s = await Servico.findAll({ where: { empresaId: req.usuario.empresaId } });
+        res.json(s);
+    } catch (e) { res.status(500).json({ erro: "Erro ao buscar serviços." }); }
 });
+
 app.post('/api/servicos', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono' && req.usuario.role !== 'admin_geral') return res.status(403).json({ erro: "Proibido" });
     try {
@@ -135,6 +192,7 @@ app.post('/api/servicos', authMiddleware, subscriptionMiddleware, async (req, re
         res.json(s);
     } catch (e) { res.status(500).json({ erro: "Erro ao criar serviço" }); }
 });
+
 app.put('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
     try {
@@ -145,6 +203,7 @@ app.put('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req,
         } else res.status(404).json({ erro: "Não encontrado" });
     } catch (e) { res.status(500).json({ erro: "Erro ao atualizar" }); }
 });
+
 app.delete('/api/servicos/:id', authMiddleware, subscriptionMiddleware, async (req, res) => {
     if (req.usuario.role !== 'dono') return res.status(403).json({ erro: "Proibido" });
     await Servico.destroy({ where: { id: req.params.id } });

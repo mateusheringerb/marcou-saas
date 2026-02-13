@@ -9,8 +9,7 @@ exports.criarAgendamento = async (req, res) => {
         const { servicosIds, profissionalId, dataHoraInicio, nomeClienteAvulso } = req.body;
         const empresaId = req.usuario.empresaId;
 
-        // servicosIds espera array ou string de IDs
-        if (!servicosIds || servicosIds.length === 0 || !dataHoraInicio) return res.status(400).json({ erro: "Selecione serviço e horário." });
+        if (!servicosIds || servicosIds.length === 0 || !dataHoraInicio) return res.status(400).json({ erro: "Dados incompletos." });
 
         let clienteId = req.usuario.id;
         let nomeAvulso = null;
@@ -20,18 +19,15 @@ exports.criarAgendamento = async (req, res) => {
             nomeAvulso = nomeClienteAvulso;
         }
 
-        // Busca serviços
         const servicos = await Servico.findAll({ where: { id: servicosIds } });
         if (servicos.length === 0) return res.status(404).json({ erro: "Serviços não encontrados." });
 
-        // Soma total
         const duracaoTotal = servicos.reduce((acc, s) => acc + s.duracao_minutos, 0);
         const nomesServicos = servicos.map(s => s.nome).join(' + ');
 
         const inicio = moment(dataHoraInicio);
         const fim = moment(inicio).add(duracaoTotal, 'minutes');
 
-        // Verifica colisão final (Segurança)
         const conflito = await Agendamento.findOne({
             where: {
                 empresaId, profissionalId, status: { [Op.not]: 'cancelado' },
@@ -42,20 +38,17 @@ exports.criarAgendamento = async (req, res) => {
             }
         });
 
-        if (conflito) return res.status(409).json({ erro: "Horário indisponível." });
+        if (conflito) return res.status(409).json({ erro: "Horário ocupado." });
 
         const novo = await Agendamento.create({
             empresaId, clienteId, nome_cliente_avulso: nomeAvulso, profissionalId,
-            servicoId: servicosIds[0], // Salva o primeiro ID apenas para referência
-            observacoes: nomesServicos, // Salva os nomes combinados
+            servicoId: servicosIds[0],
+            observacoes: nomesServicos,
             data_hora_inicio: inicio.toDate(), data_hora_fim: fim.toDate()
         });
 
         res.status(201).json(novo);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ erro: "Erro ao agendar." });
-    }
+    } catch (error) { res.status(500).json({ erro: "Erro ao agendar." }); }
 };
 
 exports.listarMeusAgendamentos = async (req, res) => {
